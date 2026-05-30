@@ -33,3 +33,21 @@
 	width: 100%;
 	text-align: center;
 }
+
+.date-list-preview {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	padding: 8px 12px;
+	margin-bottom: 12px;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+}
+
+.date-list-preview-line {
+	padding: 2px 0;
+}
+
+.date-list-insert-btn {
+	display: block;
+	width: 100%;
+}

@@ -203,13 +203,13 @@ export default class DateListPlugin extends Plugin {
 						if (r === BACK) { step--; continue; }
 						if (r === 'none') {
 							postfix = '';
-							break outer;
+							step++;
 						} else if (r === 'dash') {
 							postfix = ' - ';
-							break outer;
+							step++;
 						} else if (r === 'emdash') {
 							postfix = ' — ';
-							break outer;
+							step++;
 						} else {
 							const c = await prompt(
 								this.app,
@@ -217,24 +217,27 @@ export default class DateListPlugin extends Plugin {
 								'Enter text to append after each date, e.g. ::',
 								'',
 							);
-							if (c === BACK) continue; // back → re-show postfix picker
+							if (c === BACK) continue;
 							postfix = c;
-							break outer;
+							step++;
 						}
+
+					} else if (step === 7) {
+						const n = parseInt(nStr);
+						const end = startMoment.clone().add(n, stepUnit as moment.unitOfTime.DurationConstructor);
+						const dates: string[] = [];
+						const current = startMoment.clone();
+						while (current.isBefore(end)) {
+							const formatted = current.format(fmt);
+							dates.push(`${prefix}${wikiLinks ? `[[${formatted}]]` : formatted}${postfix}`);
+							current.add(1, 'days');
+						}
+						const confirmed = await showPreview(this.app, dates);
+						if (confirmed === BACK) { step--; continue; }
+						editor.replaceSelection(dates.join('\n'));
+						break outer;
 					}
 				}
-
-				const n = parseInt(nStr);
-				const end = startMoment.clone().add(n, stepUnit as moment.unitOfTime.DurationConstructor);
-				const dates: string[] = [];
-				const current = startMoment.clone();
-				while (current.isBefore(end)) {
-					const formatted = current.format(fmt);
-					dates.push(`${prefix}${wikiLinks ? `[[${formatted}]]` : formatted}${postfix}`);
-					current.add(1, 'days');
-				}
-
-				editor.replaceSelection(dates.join('\n'));
 			},
 		});
 	}
@@ -356,6 +359,63 @@ class SuggesterModal<T> extends Modal {
 		});
 
 		setTimeout(() => btns[0]?.focus(), 50);
+	}
+
+	onClose() {
+		if (!this.confirmed) this.resolve(BACK);
+		this.contentEl.empty();
+	}
+}
+
+function showPreview(app: App, dates: string[]): Promise<true | typeof BACK> {
+	return new Promise((resolve) => new PreviewModal(app, dates, resolve).open());
+}
+
+class PreviewModal extends Modal {
+	private dates: string[];
+	private resolve: (value: true | typeof BACK) => void;
+	private confirmed = false;
+
+	constructor(app: App, dates: string[], resolve: (value: true | typeof BACK) => void) {
+		super(app);
+		this.dates = dates;
+		this.resolve = resolve;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+
+		this.titleEl.empty();
+		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
+		backBtn.addEventListener('click', () => this.close());
+		this.titleEl.createSpan({ text: 'Preview' });
+
+		const preview = this.dates.length <= 5
+			? this.dates
+			: [
+				...this.dates.slice(0, 3),
+				`  ⋮  (${this.dates.length} dates total)`,
+				this.dates[this.dates.length - 1]!,
+			];
+
+		const previewEl = contentEl.createEl('div', { cls: 'date-list-preview' });
+		preview.forEach((line) => previewEl.createEl('div', { text: line, cls: 'date-list-preview-line' }));
+
+		const insertBtn = contentEl.createEl('button', {
+			text: `Insert ${this.dates.length} date${this.dates.length === 1 ? '' : 's'}`,
+			cls: 'date-list-insert-btn',
+		});
+		insertBtn.addEventListener('click', () => {
+			this.confirmed = true;
+			this.resolve(true);
+			this.close();
+		});
+
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Enter') { e.preventDefault(); insertBtn.click(); }
+		});
+
+		setTimeout(() => insertBtn.focus(), 50);
 	}
 
 	onClose() {
