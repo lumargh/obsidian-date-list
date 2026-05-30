@@ -72,6 +72,7 @@ export default class DateListPlugin extends Plugin {
 				let fmt = this.settings.defaultFormat;
 				let wikiLinks = true;
 				let prefix = '';
+				let postfix = '';
 				let startMoment = moment();
 
 				outer: while (true) {
@@ -172,13 +173,13 @@ export default class DateListPlugin extends Plugin {
 						if (r === BACK) { step--; continue; }
 						if (r === 'none') {
 							prefix = '';
-							break outer;
+							step++;
 						} else if (r === 'dash') {
 							prefix = '- ';
-							break outer;
+							step++;
 						} else if (r === 'task') {
 							prefix = '- [ ] ';
-							break outer;
+							step++;
 						} else {
 							const c = await prompt(
 								this.app,
@@ -188,6 +189,36 @@ export default class DateListPlugin extends Plugin {
 							);
 							if (c === BACK) continue; // back → re-show prefix picker
 							prefix = c;
+							step++;
+						}
+
+					} else if (step === 6) {
+						const r = await suggest(
+							this.app,
+							'Postfix',
+							'Optionally append text after each date.',
+							['None', ' - ', ' — ', 'Custom…'],
+							['none', 'dash', 'emdash', 'custom'],
+						);
+						if (r === BACK) { step--; continue; }
+						if (r === 'none') {
+							postfix = '';
+							break outer;
+						} else if (r === 'dash') {
+							postfix = ' - ';
+							break outer;
+						} else if (r === 'emdash') {
+							postfix = ' — ';
+							break outer;
+						} else {
+							const c = await prompt(
+								this.app,
+								'Custom Postfix',
+								'Enter text to append after each date, e.g. ::',
+								'',
+							);
+							if (c === BACK) continue; // back → re-show postfix picker
+							postfix = c;
 							break outer;
 						}
 					}
@@ -199,7 +230,7 @@ export default class DateListPlugin extends Plugin {
 				const current = startMoment.clone();
 				while (current.isBefore(end)) {
 					const formatted = current.format(fmt);
-					dates.push(`${prefix}${wikiLinks ? `[[${formatted}]]` : formatted}`);
+					dates.push(`${prefix}${wikiLinks ? `[[${formatted}]]` : formatted}${postfix}`);
 					current.add(1, 'days');
 				}
 
