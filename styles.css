@@ -1,0 +1,35 @@
+.date-list-back-btn {
+	margin-right: 8px;
+	vertical-align: middle;
+}
+
+.date-list-instructions {
+	margin-bottom: 12px;
+}
+
+.date-list-input {
+	width: 100%;
+	margin-bottom: 8px;
+}
+
+.date-list-option-btn {
+	display: block;
+	position: relative;
+	width: 100%;
+	margin-bottom: 4px;
+	text-align: center;
+}
+
+.date-list-option-num {
+	position: absolute;
+	left: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	opacity: 0.5;
+}
+
+.date-list-option-text {
+	display: inline-block;
+	width: 100%;
+	text-align: center;
+}
