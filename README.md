@@ -1,10 +1,10 @@
 # Date List
 
-An Obsidian plugin that inserts a formatted list of dates at your cursor through a step-by-step wizard.
+An Obsidian plugin that inserts a formatted list of dates at your cursor through a step-by-step wizard with a live preview.
 
 ## Usage
 
-Run **Insert date list** from the command palette. The wizard walks you through five steps:
+Open the command palette and run **Date List: Insert**. The wizard walks you through each step, with a live preview panel on the right side of every screen updating as you make choices.
 
 | Step | What you choose |
 |------|----------------|
@@ -13,7 +13,9 @@ Run **Insert date list** from the command palette. The wizard walks you through 
 | Time unit | Days, Weeks, or Months |
 | Date format | Your default, ISO, short, or a custom Moment.js string |
 | Wiki links | Wrap dates in `[[...]]` or leave as plain text |
+| Alias *(optional)* | A display alias for each wiki link, e.g. `[[2026-01-15\|Thu, Jan 15]]` |
 | Prefix | None, `- `, `- [ ] `, or a custom prefix |
+| Postfix | None, ` - `, ` — `, or a custom postfix |
 
 ### Date input formats
 
@@ -40,21 +42,16 @@ All picker screens support full keyboard control:
 
 ## Settings
 
-**Default date format** — the Moment.js format string used as the first option in the format picker (e.g. `YYYY-MM-DD`, `MMMM Do, YYYY`). Configure it under Settings → Date List.
+All wizard defaults are configurable under **Settings → Date List**. Your last-used choices are also saved automatically after each insert, so the wizard pre-fills with your previous selections.
 
-## Manual installation
+| Setting | Description |
+|---------|-------------|
+| Default start date | Pre-filled start date (e.g. `today`, `+7`, `next monday`) |
+| Default date format | Moment.js format string shown as the first format option |
+| Default quantity | Pre-filled quantity |
+| Default time unit | Pre-selected unit (Days, Weeks, or Months) |
+| Default wiki links | Whether to wrap dates in `[[...]]` by default |
+| Default alias format | Moment.js format for the wiki link alias (leave blank for none) |
+| Default prefix | Text prepended to each date by default |
+| Default postfix | Text appended to each date by default |
 
-1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](https://github.com/lumargh/obsidian-date-list/releases/latest).
-2. Copy all three files into `<your vault>/.obsidian/plugins/date-list/`.
-3. Reload Obsidian and enable the plugin under Settings → Community Plugins.
-
-## Development
-
-```bash
-git clone https://github.com/lumargh/obsidian-date-list.git
-cd obsidian-date-list
-npm install
-npm run dev
-```
-
-Copy the folder into your vault's `.obsidian/plugins/` directory and enable it in Obsidian.
