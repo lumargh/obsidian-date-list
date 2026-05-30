@@ -24,12 +24,12 @@ function parseDate(input: string) {
 	if (s === 'yesterday') return moment().subtract(1, 'days');
 
 	const relative = s.match(/^([+-]\d+)$/);
-	if (relative) return moment().add(parseInt(relative[1]), 'days');
+	if (relative) return moment().add(parseInt(relative[1]!), 'days');
 
 	const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 	const nextDay = s.match(/^next (\w+)$/);
 	if (nextDay) {
-		const idx = weekdays.indexOf(nextDay[1]);
+		const idx = weekdays.indexOf(nextDay[1]!);
 		if (idx !== -1) {
 			const d = moment().day(idx);
 			return d.isSameOrBefore(moment(), 'day') ? d.add(7, 'days') : d;
