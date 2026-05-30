@@ -1,7 +1,7 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import DateListPlugin from './main';
 
-export interface MyPluginSettings {
+export interface DateListSettings {
 	defaultStartDate: string;
 	defaultFormat: string;
 	defaultQuantity: string;
@@ -12,8 +12,8 @@ export interface MyPluginSettings {
 	defaultPostfix: string;
 }
 
-export const DEFAULT_SETTINGS: MyPluginSettings = {
-	defaultStartDate: 'today',
+export const DEFAULT_SETTINGS: DateListSettings = {
+	defaultStartDate: 'Today',
 	defaultFormat: 'YYYY-MM-DD',
 	defaultQuantity: '1',
 	defaultStepUnit: 'days',
@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
 	defaultPostfix: '',
 };
 
-export class SampleSettingTab extends PluginSettingTab {
+export class DateListSettingTab extends PluginSettingTab {
 	plugin: DateListPlugin;
 
 	constructor(app: App, plugin: DateListPlugin) {
@@ -37,10 +37,10 @@ export class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Default start date')
-			.setDesc('Pre-filled start date. Supports the same natural language as the wizard (e.g. today, +7, next monday)')
+			.setDesc('Pre-filled start date. Supports the same natural language as the wizard (e.g. Today, +7, next monday)')
 			.addText((text) =>
 				text
-					.setPlaceholder('today')
+					.setPlaceholder('Today')
 					.setValue(this.plugin.settings.defaultStartDate)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultStartDate = value;
@@ -53,7 +53,8 @@ export class SampleSettingTab extends PluginSettingTab {
 			.setDesc('Moment.js format string shown as the first option in the format picker (e.g. MMMM Do, YYYY)')
 			.addText((text) =>
 				text
-					.setPlaceholder('YYYY-MM-DD')
+					// eslint-disable-next-line obsidianmd/ui/sentence-case
+				.setPlaceholder('YYYY-MM-DD')
 					.setValue(this.plugin.settings.defaultFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultFormat = value;
@@ -106,7 +107,7 @@ export class SampleSettingTab extends PluginSettingTab {
 			.setDesc('Moment.js format for the wiki link alias, e.g. ddd, MMM D → [[2026-01-15|Thu, Jan 15]]. Leave blank for no alias.')
 			.addText((text) =>
 				text
-					.setPlaceholder('none')
+					.setPlaceholder('None')
 					.setValue(this.plugin.settings.defaultAlias)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultAlias = value;
@@ -119,7 +120,7 @@ export class SampleSettingTab extends PluginSettingTab {
 			.setDesc('Text to prepend to each date by default (e.g. - or - [ ] )')
 			.addText((text) =>
 				text
-					.setPlaceholder('none')
+					.setPlaceholder('None')
 					.setValue(this.plugin.settings.defaultPrefix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPrefix = value;
@@ -132,7 +133,7 @@ export class SampleSettingTab extends PluginSettingTab {
 			.setDesc('Text to append after each date by default (e.g. - or —)')
 			.addText((text) =>
 				text
-					.setPlaceholder('none')
+					.setPlaceholder('None')
 					.setValue(this.plugin.settings.defaultPostfix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPostfix = value;

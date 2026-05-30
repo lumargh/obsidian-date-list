@@ -8,9 +8,13 @@ import {
 	Plugin,
 	moment as _m,
 } from 'obsidian';
-import { DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab } from './settings';
+import { DEFAULT_SETTINGS, DateListSettings, DateListSettingTab } from './settings';
 
-const moment = _m as unknown as typeof import('moment');
+// _m is typed as a non-callable namespace; build a callable type from its own members.
+type MomentInstance = ReturnType<typeof _m.utc>;
+type MomentFactory = { (): MomentInstance; (inp: string, fmt?: string | string[]): MomentInstance } & typeof _m;
+const moment = _m as unknown as MomentFactory;
+type DurationUnit = 'days' | 'weeks' | 'months';
 
 // Sentinel returned by any modal dismissed without a confirmed selection.
 const BACK = Symbol('back');
@@ -19,7 +23,7 @@ const BACK = Symbol('back');
 // Wizard state — snapshot passed into every modal for live preview
 // -------------------------------------------------------------------
 interface WizardState {
-	startMoment: ReturnType<typeof moment>;
+	startMoment: MomentInstance;
 	nStr: string;
 	stepUnit: string;
 	fmt: string;
@@ -32,7 +36,7 @@ interface WizardState {
 function buildDates(state: WizardState): string[] {
 	const n = parseInt(state.nStr);
 	if (isNaN(n) || n < 1) return [];
-	const end = state.startMoment.clone().add(n, state.stepUnit as moment.unitOfTime.DurationConstructor);
+	const end = state.startMoment.clone().add(n, state.stepUnit as DurationUnit);
 	const all: string[] = [];
 	const current = state.startMoment.clone();
 	while (current.isBefore(end) && all.length < 1000) {
@@ -132,15 +136,15 @@ function suggest<T>(
 // Plugin
 // -------------------------------------------------------------------
 export default class DateListPlugin extends Plugin {
-	settings!: MyPluginSettings;
+	settings!: DateListSettings;
 
 	async onload() {
 		await this.loadSettings();
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new DateListSettingTab(this.app, this));
 
 		this.addCommand({
-			id: 'insert-date-list',
-			name: 'Insert date list',
+			id: 'insert',
+			name: 'Insert',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let step = 0;
 				let startInput = this.settings.defaultStartDate;
@@ -384,7 +388,7 @@ export default class DateListPlugin extends Plugin {
 	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<DateListSettings>);
 	}
 
 	async saveSettings() {
@@ -456,7 +460,7 @@ class PromptModal extends Modal {
 			renderPreview(previewEl, this.previewMapper(input.value, this.state));
 		});
 
-		setTimeout(() => { input.focus(); input.select(); }, 50);
+		window.setTimeout(() => { input.focus(); input.select(); }, 50);
 	}
 
 	onClose() {
@@ -536,7 +540,7 @@ class SuggesterModal<T> extends Modal {
 		});
 
 		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			const focused = btns.findIndex((b) => b === document.activeElement);
+			const focused = btns.findIndex((b) => b === activeDocument.activeElement);
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
 				btns[(focused + 1) % btns.length]?.focus();
@@ -555,7 +559,7 @@ class SuggesterModal<T> extends Modal {
 			}
 		});
 
-		setTimeout(() => btns[0]?.focus(), 50);
+		window.setTimeout(() => btns[0]?.focus(), 50);
 	}
 
 	onClose() {
