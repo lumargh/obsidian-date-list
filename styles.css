@@ -1,3 +1,59 @@
+.date-list-modal {
+	width: 680px;
+	max-width: calc(100vw - 40px);
+}
+
+.date-list-modal-body {
+	display: flex;
+	gap: 20px;
+}
+
+.date-list-modal-left {
+	flex: 1;
+	min-width: 0;
+}
+
+.date-list-modal-right {
+	width: 200px;
+	flex-shrink: 0;
+	border-left: 1px solid var(--background-modifier-border);
+	padding-left: 16px;
+}
+
+.date-list-preview-label {
+	font-size: var(--font-smaller);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	margin-bottom: 8px;
+}
+
+.date-list-preview-sidebar {
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+}
+
+.date-list-preview-empty {
+	color: var(--text-muted);
+}
+
+.date-list-preview-ellipsis {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.date-list-preview-hr {
+	margin: 6px 0;
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.date-list-preview-total {
+	color: var(--text-muted);
+	font-size: var(--font-smaller);
+	margin-top: 4px;
+}
+
 .date-list-back-btn {
 	margin-right: 8px;
 	vertical-align: middle;
@@ -34,20 +90,6 @@
 	text-align: center;
 }
 
-.date-list-preview {
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 4px;
-	padding: 8px 12px;
-	margin-bottom: 12px;
-	font-family: var(--font-monospace);
-	font-size: var(--font-smaller);
-}
-
 .date-list-preview-line {
 	padding: 2px 0;
-}
-
-.date-list-insert-btn {
-	display: block;
-	width: 100%;
 }
