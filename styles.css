@@ -68,25 +68,38 @@
 }
 
 .date-list-option-btn {
-	display: block;
-	position: relative;
+	display: flex;
+	align-items: center;
 	width: 100%;
 	margin-bottom: 4px;
-	text-align: center;
 }
 
 .date-list-option-num {
-	position: absolute;
-	left: 8px;
-	top: 50%;
-	transform: translateY(-50%);
+	flex: 0 0 24px;
+	text-align: center;
 	opacity: 0.5;
 }
 
+.date-list-option-subtext {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	padding: 0 6px;
+}
+
 .date-list-option-text {
-	display: inline-block;
-	width: 100%;
+	flex: 1;
 	text-align: center;
+}
+
+.date-list-option-btn.has-subtext .date-list-option-text {
+	text-align: right;
+	padding-right: 4px;
 }
 
 .date-list-preview-line {
@@ -102,4 +115,31 @@
 	color: var(--text-muted);
 	font-size: var(--font-smaller);
 	font-family: var(--font-monospace);
+}
+
+.date-list-duration-row {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	margin-bottom: 8px;
+}
+
+.date-list-duration-input {
+	width: 64px;
+	flex-shrink: 0;
+}
+
+.date-list-duration-unit-btn {
+	flex: 1;
+	position: relative;
+	text-align: center;
+}
+
+.date-list-duration-unit-btn.is-active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.date-list-duration-modal .date-list-preview-sidebar {
+	min-height: 180px;
 }

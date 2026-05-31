@@ -57,7 +57,7 @@ export class DateListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Default date format')
-			.setDesc('Format string shown as the first option in the format picker (e.g. MMMM Do, YYYY)')
+			.setDesc('Format string shown as the first option in the format picker (e.g. MMMM Do, YYYY). To add normal text, wrap the word in [ ]')
 			.addText((text) => {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
