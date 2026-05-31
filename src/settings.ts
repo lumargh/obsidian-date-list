@@ -1,8 +1,29 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, moment as _m } from 'obsidian';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const moment = _m as any;
 import DateListPlugin from './main';
 
+export interface LastUsed {
+	quantity: string;
+	stepUnit: string;
+	fmt: string;
+	wikiLinks: boolean;
+	alias: string;
+	prefix: string;
+	postfix: string;
+}
+
+export const DEFAULT_LAST_USED: LastUsed = {
+	quantity: '1',
+	stepUnit: 'days',
+	fmt: 'YYYY-MM-DD',
+	wikiLinks: false,
+	alias: '',
+	prefix: '',
+	postfix: '',
+};
+
 export interface DateListSettings {
-	defaultStartDate: string;
 	defaultFormat: string;
 	defaultQuantity: string;
 	defaultStepUnit: string;
@@ -13,7 +34,6 @@ export interface DateListSettings {
 }
 
 export const DEFAULT_SETTINGS: DateListSettings = {
-	defaultStartDate: 'Today',
 	defaultFormat: 'YYYY-MM-DD',
 	defaultQuantity: '1',
 	defaultStepUnit: 'days',
@@ -36,59 +56,26 @@ export class DateListSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Default start date')
-			.setDesc('Pre-filled start date. Supports the same natural language as the wizard (e.g. Today, +7, next monday)')
-			.addText((text) =>
-				text
-					.setPlaceholder('Today')
-					.setValue(this.plugin.settings.defaultStartDate)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultStartDate = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
 			.setName('Default date format')
-			.setDesc('Moment.js format string shown as the first option in the format picker (e.g. MMMM Do, YYYY)')
-			.addText((text) =>
+			.setDesc('Format string shown as the first option in the format picker (e.g. MMMM Do, YYYY)')
+			.addText((text) => {
+				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
+				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
+					cls: 'date-list-settings-preview',
+					text: this.plugin.settings.defaultFormat ? moment().format(this.plugin.settings.defaultFormat) : '',
+				});
+				fmtPreview.toggle(!!this.plugin.settings.defaultFormat);
 				text
 					// eslint-disable-next-line obsidianmd/ui/sentence-case
-				.setPlaceholder('YYYY-MM-DD')
+					.setPlaceholder('YYYY-MM-DD')
 					.setValue(this.plugin.settings.defaultFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultFormat = value;
+						fmtPreview.toggle(!!value);
+						fmtPreview.setText(value ? moment().format(value) : '');
 						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Default quantity')
-			.setDesc('Pre-filled value for the quantity step')
-			.addText((text) =>
-				text
-					.setPlaceholder('1')
-					.setValue(this.plugin.settings.defaultQuantity)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultQuantity = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Default time unit')
-			.setDesc('Pre-selected unit for the time unit step')
-			.addDropdown((drop) =>
-				drop
-					.addOption('days', 'Days')
-					.addOption('weeks', 'Weeks')
-					.addOption('months', 'Months')
-					.setValue(this.plugin.settings.defaultStepUnit)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultStepUnit = value;
-						await this.plugin.saveSettings();
-					}),
-			);
+					});
+			});
 
 		new Setting(containerEl)
 			.setName('Default wiki links')
@@ -104,16 +91,22 @@ export class DateListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Default alias format')
-			.setDesc('Moment.js format for the wiki link alias, e.g. ddd, MMM D → [[2026-01-15|Thu, Jan 15]]. Leave blank for no alias.')
-			.addText((text) =>
+			.setDesc('Format for the wiki link alias (e.g. ddd, MMM D). Leave blank for no alias.')
+			.addText((text) => {
+				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
+				const aliasPreview = text.inputEl.parentElement!.createEl('div', {
+					cls: 'date-list-settings-preview',
+					text: this.plugin.settings.defaultAlias ? moment().format(this.plugin.settings.defaultAlias) : '',
+				});
 				text
 					.setPlaceholder('None')
 					.setValue(this.plugin.settings.defaultAlias)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultAlias = value;
+						aliasPreview.setText(value ? moment().format(value) : '');
 						await this.plugin.saveSettings();
-					}),
-			);
+					});
+			});
 
 		new Setting(containerEl)
 			.setName('Default prefix')
