@@ -73,6 +73,16 @@ function renderPreview(el: HTMLElement, state: WizardState): void {
 	el.createEl('div', { text: `${all.length} dates total`, cls: 'date-list-preview-total' });
 }
 
+function nthWeekdayOccurrence(start: MomentInstance, weekdays: number[], n: number): MomentInstance {
+	let count = 0;
+	const current = start.clone();
+	while (count < n) {
+		if (weekdays.includes(current.day())) count++;
+		if (count < n) current.add(1, 'days');
+	}
+	return current;
+}
+
 const FMT_CATS: Record<string, string> = {
 	'YYYY-MM-DD':      'ISO',
 	'YYYY/MM/DD':      'Folder',
@@ -539,8 +549,8 @@ export default class DateListPlugin extends Plugin {
 						if (mode === 'defaults') break outer;
 						step++;
 
-					// step 4 — date format
-					} else if (step === 4) {
+					// step 3 — date format
+					} else if (step === 3) {
 						const effectiveDefault = this.settings.defaultFormat || 'YYYY-MM-DD';
 						const fmtPresets: { label: string; value: string; fmt: string }[] = [
 							{ label: startMoment.format('YYYY-MM-DD'),      value: 'iso',     fmt: 'YYYY-MM-DD' },
@@ -576,8 +586,8 @@ export default class DateListPlugin extends Plugin {
 							fmt = c; step++;
 						}
 
-					// step 5 — wiki links + alias
-					} else if (step === 5) {
+					// step 4 — wiki links + alias
+					} else if (step === 4) {
 						const wikiDefault = this.settings.defaultWikiLinks;
 						const r = await suggest<boolean>(
 							this.app,
@@ -622,8 +632,8 @@ export default class DateListPlugin extends Plugin {
 						}
 						step++;
 
-					// step 6 — prefix
-					} else if (step === 6) {
+					// step 5 — prefix
+					} else if (step === 5) {
 						const defaultPrefixLabel = this.settings.defaultPrefix ? `${JSON.stringify(this.settings.defaultPrefix)} (default)` : 'None (default)';
 						const prefixPresets: { label: string; value: string; str: string }[] = [
 							{ label: 'None',    value: 'none',  str: '' },
@@ -655,8 +665,8 @@ export default class DateListPlugin extends Plugin {
 							prefix = c; step++;
 						}
 
-					// step 7 — postfix
-					} else if (step === 7) {
+					// step 6 — postfix
+					} else if (step === 6) {
 						const defaultPostfixLabel = this.settings.defaultPostfix ? `${JSON.stringify(this.settings.defaultPostfix)} (default)` : 'None (default)';
 						const postfixPresets: { label: string; value: string; str: string }[] = [
 							{ label: 'None',  value: 'none',   str: '' },
@@ -703,7 +713,7 @@ export default class DateListPlugin extends Plugin {
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let step = 0;
 				let selectedWeekdays: number[] = [1, 2, 3, 4, 5];
-				let rangeMethod: 'between' | 'in-the-next' | 'in-the-past' = 'between';
+				let rangeMethod: 'between' | 'in-the-next' | 'in-the-past' | 'next-n' = 'between';
 				let startInput = moment().format('YYYY-MM-DD');
 				let endInput   = '';
 				let nStr       = '1';
@@ -733,6 +743,17 @@ export default class DateListPlugin extends Plugin {
 						return {
 							startMoment: pastStart,
 							nStr: String(Math.max(1, startMoment.diff(pastStart, 'days') + 1)),
+							stepUnit: 'days',
+							weekdays: selectedWeekdays,
+							fmt, wikiLinks, alias, prefix, postfix,
+						};
+					}
+					if (rangeMethod === 'next-n') {
+						const count = Math.max(1, parseInt(nStr) || 1);
+						const end = nthWeekdayOccurrence(startMoment, selectedWeekdays, count);
+						return {
+							startMoment: startMoment.clone(),
+							nStr: String(end.diff(startMoment, 'days') + 1),
 							stepUnit: 'days',
 							weekdays: selectedWeekdays,
 							fmt, wikiLinks, alias, prefix, postfix,
@@ -780,8 +801,8 @@ export default class DateListPlugin extends Plugin {
 							this.app,
 							'Date Range',
 							'How would you like to define the date range?',
-							['Between…', 'In the next…', 'In the past…'],
-							['between', 'in-the-next', 'in-the-past'],
+							['Between…', 'In the next…', 'In the past…', 'Next N occurrences…'],
+							['between', 'in-the-next', 'in-the-past', 'next-n'],
 							{ ...state(), nStr: '14', stepUnit: 'days' },
 							(value, s) => {
 								if (value === 'between') return { ...s, startMoment: startMoment.clone(), nStr: String(Math.max(1, endMoment.diff(startMoment, 'days') + 1)), stepUnit: 'days' };
@@ -789,11 +810,15 @@ export default class DateListPlugin extends Plugin {
 									const pastStart = startMoment.clone().subtract(14, 'days');
 									return { ...s, startMoment: pastStart, nStr: String(startMoment.diff(pastStart, 'days') + 1), stepUnit: 'days' };
 								}
+								if (value === 'next-n') {
+									const end = nthWeekdayOccurrence(startMoment, selectedWeekdays, 7);
+									return { ...s, startMoment: startMoment.clone(), nStr: String(end.diff(startMoment, 'days') + 1), stepUnit: 'days' };
+								}
 								return { ...s, startMoment: startMoment.clone(), nStr, stepUnit };
 							},
 						);
 						if (r === BACK) { step--; continue; }
-						rangeMethod = r as 'between' | 'in-the-next' | 'in-the-past';
+						rangeMethod = r as 'between' | 'in-the-next' | 'in-the-past' | 'next-n';
 						step++;
 
 					// step 2 — start date (between) or quantity (in the next)
@@ -813,6 +838,23 @@ export default class DateListPlugin extends Plugin {
 							startInput  = r;
 							startMoment = m;
 							if (!endMoment.isAfter(startMoment, 'day')) endMoment = startMoment.clone().add(1, 'months');
+						} else if (rangeMethod === 'next-n') {
+							const r = await prompt(
+								this.app,
+								'Count',
+								'How many occurrences? (e.g. 7)',
+								nStr,
+								state(),
+								(value, s) => {
+									const count = Math.max(1, parseInt(value) || 1);
+									const end = nthWeekdayOccurrence(startMoment, selectedWeekdays, count);
+									return { ...s, startMoment: startMoment.clone(), nStr: String(end.diff(startMoment, 'days') + 1), stepUnit: 'days' };
+								},
+							);
+							if (r === BACK) { step--; continue; }
+							nStr = String(Math.max(1, parseInt(r) || 1));
+							step = 4;
+							continue;
 						} else {
 							const r = await promptDuration(
 								this.app,
@@ -1586,13 +1628,15 @@ class StartMethodModal extends Modal {
 			const mIdx = methodBtns.findIndex(b => b === active);
 			const uIdx = unitBtns.findIndex(b => b === active);
 			if (mIdx >= 0) {
-				if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); methodBtns[(mIdx + 1) % methodBtns.length]?.focus(); }
-				else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); methodBtns[(mIdx - 1 + methodBtns.length) % methodBtns.length]?.focus(); }
+				if (e.key === 'ArrowRight') { e.preventDefault(); methodBtns[(mIdx + 1) % methodBtns.length]?.focus(); }
+				else if (e.key === 'ArrowLeft') { e.preventDefault(); methodBtns[(mIdx - 1 + methodBtns.length) % methodBtns.length]?.focus(); }
+				else if (e.key === 'ArrowDown') { e.preventDefault(); (selectedMethod === 'specific-date' ? endInput : nInput).focus(); }
 				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
 				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < methodBtns.length) { e.preventDefault(); methodBtns[idx]!.focus(); } }
 			} else if (uIdx >= 0) {
-				if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); unitBtns[(uIdx + 1) % unitBtns.length]?.focus(); }
-				else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); unitBtns[(uIdx - 1 + unitBtns.length) % unitBtns.length]?.focus(); }
+				if (e.key === 'ArrowRight') { e.preventDefault(); unitBtns[(uIdx + 1) % unitBtns.length]?.focus(); }
+				else if (e.key === 'ArrowLeft') { e.preventDefault(); unitBtns[(uIdx - 1 + unitBtns.length) % unitBtns.length]?.focus(); }
+				else if (e.key === 'ArrowUp') { e.preventDefault(); (methodBtns.find(b => b.hasClass('is-active')) ?? methodBtns[0])?.focus(); }
 				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
 				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < unitBtns.length) { e.preventDefault(); unitBtns[idx]!.focus(); } }
 			}

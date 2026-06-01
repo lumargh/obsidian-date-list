@@ -1,6 +1,36 @@
+/* TODO */
+/* Remove the border around the selected button since we now have the purple  */
+
+
 .date-list-modal {
 	width: 50vw;
 	max-width: 50vw;
+}
+
+@media (max-width: 1200px) {
+	.date-list-modal {
+		width: 75vw;
+		max-width: 75vw;
+	}
+}
+
+@media (max-width: 768px) {
+	.date-list-modal {
+		width: 92vw;
+		max-width: 92vw;
+	}
+
+	.date-list-modal-body {
+		flex-direction: column;
+	}
+
+	.date-list-modal-right {
+		flex: unset;
+		border-left: none;
+		border-top: 1px solid var(--background-modifier-border);
+		padding-left: 0;
+		padding-top: 16px;
+	}
 }
 
 .date-list-modal-body {
@@ -72,6 +102,11 @@
 	align-items: center;
 	width: 100%;
 	margin-bottom: 4px;
+}
+
+.date-list-option-btn:focus {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
 }
 
 .date-list-option-num {
