@@ -1,10 +1,9 @@
-/* TODO */
-/* Remove the border around the selected button since we now have the purple  */
-
 
 .date-list-modal {
 	width: 50vw;
 	max-width: 50vw;
+	align-self: flex-start;
+	margin-top: 10vh;
 }
 
 @media (max-width: 1200px) {
@@ -107,6 +106,8 @@
 .date-list-option-btn:focus {
 	background-color: var(--interactive-accent);
 	color: var(--text-on-accent);
+	box-shadow: none;
+	outline: none;
 }
 
 .date-list-option-num {
@@ -177,4 +178,131 @@
 
 .date-list-duration-modal .date-list-preview-sidebar {
 	min-height: 180px;
+}
+
+/* ── Calendar button row ─────────────────────────────────────────── */
+
+.date-list-date-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 8px;
+	position: relative;
+}
+
+.date-list-date-row .date-list-input {
+	flex: 1;
+	margin-bottom: 0;
+}
+
+.date-list-calendar-btn {
+	flex-shrink: 0;
+	padding: 4px 6px;
+	display: flex;
+	align-items: center;
+}
+
+.date-list-fp-anchor {
+	width: 0;
+	height: 0;
+	padding: 0;
+	border: none;
+	opacity: 0;
+	pointer-events: none;
+	position: absolute;
+}
+
+/* ── Flatpickr — Obsidian theme overrides ────────────────────────── */
+
+.flatpickr-calendar {
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	border-radius: var(--radius-m);
+	color: var(--text-normal);
+
+}
+
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year {
+	background: var(--background-primary);
+	color: var(--text-normal);
+	fill: var(--text-normal);
+}
+
+.flatpickr-weekdays,
+span.flatpickr-weekday {
+	background: var(--background-primary);
+	color: var(--text-muted);
+	fill: var(--text-muted);
+}
+
+.flatpickr-days {
+	border-color: var(--background-modifier-border);
+}
+
+.flatpickr-day {
+	color: var(--text-normal);
+	border-radius: var(--radius-s);
+}
+
+.flatpickr-day:hover,
+.flatpickr-day:focus {
+	background: var(--background-modifier-hover);
+	border-color: transparent;
+	color: var(--text-normal);
+}
+
+.flatpickr-day.today {
+	border-color: var(--interactive-accent);
+}
+
+.flatpickr-day.today:hover,
+.flatpickr-day.today:focus {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected:focus {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+	color: var(--text-faint);
+}
+
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+	fill: var(--text-muted);
+	color: var(--text-muted);
+}
+
+.flatpickr-months .flatpickr-prev-month:hover,
+.flatpickr-months .flatpickr-next-month:hover {
+	fill: var(--text-normal);
+	color: var(--text-normal);
+}
+
+.flatpickr-months .flatpickr-prev-month:hover svg,
+.flatpickr-months .flatpickr-next-month:hover svg {
+	fill: var(--text-normal);
+}
+
+.numInputWrapper:hover {
+	background: var(--background-modifier-hover);
+}
+
+.numInputWrapper span.arrowUp:after {
+	border-bottom-color: var(--text-muted);
+}
+
+.numInputWrapper span.arrowDown:after {
+	border-top-color: var(--text-muted);
 }

@@ -6,9 +6,13 @@ import {
 	Modal,
 	Notice,
 	Plugin,
+	setIcon,
 	moment as _m,
 } from 'obsidian';
 import { DEFAULT_SETTINGS, DateListSettings, DateListSettingTab } from './settings';
+import flatpickr from 'flatpickr';
+import type { Instance as FpInstance } from 'flatpickr/dist/types/instance';
+import 'flatpickr/dist/flatpickr.min.css';
 
 // _m is typed as a non-callable namespace; build a callable type from its own members.
 type MomentInstance = ReturnType<typeof _m.utc>;
@@ -81,6 +85,46 @@ function nthWeekdayOccurrence(start: MomentInstance, weekdays: number[], n: numb
 		if (count < n) current.add(1, 'days');
 	}
 	return current;
+}
+
+function createDateInputRow(
+	container: HTMLElement,
+	defaultValue: string,
+	placeholder: string,
+): { input: HTMLInputElement; fp: FpInstance } {
+	const row = container.createEl('div', { cls: 'date-list-date-row' });
+	const input = row.createEl('input', { type: 'text', cls: 'date-list-input' });
+	input.value = defaultValue;
+	input.placeholder = placeholder;
+
+	const calBtn = row.createEl('button', { cls: 'date-list-calendar-btn', attr: { type: 'button' } });
+	setIcon(calBtn, 'calendar');
+
+	// Invisible anchor element that Flatpickr attaches to, positioned near the button
+	const fpAnchor = row.createEl('input', { type: 'text', cls: 'date-list-fp-anchor' });
+	fpAnchor.tabIndex = -1;
+
+	const fp = flatpickr(fpAnchor, {
+		dateFormat: 'Y-m-d',
+		positionElement: calBtn,
+		disableMobile: true,
+		onChange: (_dates: Date[], dateStr: string) => {
+			if (dateStr) {
+				input.value = dateStr;
+				input.dispatchEvent(new Event('input'));
+			}
+		},
+	});
+
+	calBtn.addEventListener('click', (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		const m = parseDate(input.value);
+		if (m.isValid()) fp.setDate(m.toDate(), false);
+		fp.open();
+	});
+
+	return { input, fp };
 }
 
 const FMT_CATS: Record<string, string> = {
@@ -194,6 +238,31 @@ function promptDuration(
 ): Promise<DurationResult | typeof BACK> {
 	return new Promise((resolve) =>
 		new DurationModal(app, title, instructions, defaultN, defaultUnit, state, previewMapper, resolve).open(),
+	);
+}
+
+interface FilterRangeResult {
+	method: 'between' | 'in-the-next' | 'in-the-past' | 'next-n';
+	startInput: string;
+	startMoment: MomentInstance;
+	endInput: string;
+	endMoment: MomentInstance;
+	nStr: string;
+	stepUnit: string;
+}
+
+function promptFilterRange(
+	app: App,
+	defaultMethod: 'between' | 'in-the-next' | 'in-the-past' | 'next-n',
+	defaultStartInput: string,
+	defaultEndInput: string,
+	defaultN: string,
+	defaultUnit: string,
+	selectedWeekdays: number[],
+	state: WizardState,
+): Promise<FilterRangeResult | typeof BACK> {
+	return new Promise((resolve) =>
+		new FilterRangeModal(app, defaultMethod, defaultStartInput, defaultEndInput, defaultN, defaultUnit, selectedWeekdays, state, resolve).open(),
 	);
 }
 
@@ -772,15 +841,15 @@ export default class DateListPlugin extends Plugin {
 					// step 0 — day type
 					if (step === 0) {
 						const dayOptions: { label: string; days: number[] }[] = [
+							{ label: 'Mondays',            days: [1] },
+							{ label: 'Tuesdays',           days: [2] },
+							{ label: 'Wednesdays',         days: [3] },
+							{ label: 'Thursdays',          days: [4] },
+							{ label: 'Fridays',            days: [5] },
+							{ label: 'Saturdays',          days: [6] },
+							{ label: 'Sundays',            days: [0] },
 							{ label: 'Weekdays (Mon–Fri)', days: [1, 2, 3, 4, 5] },
 							{ label: 'Weekends (Sat–Sun)', days: [6, 0] },
-							{ label: 'Mondays',    days: [1] },
-							{ label: 'Tuesdays',   days: [2] },
-							{ label: 'Wednesdays', days: [3] },
-							{ label: 'Thursdays',  days: [4] },
-							{ label: 'Fridays',    days: [5] },
-							{ label: 'Saturdays',  days: [6] },
-							{ label: 'Sundays',    days: [0] },
 						];
 						const r = await suggest<number[]>(
 							this.app,
@@ -795,113 +864,28 @@ export default class DateListPlugin extends Plugin {
 						selectedWeekdays = r;
 						step++;
 
-					// step 1 — range method
+					// step 1 — range method + inputs
 					} else if (step === 1) {
-						const r = await suggest<string>(
+						const r = await promptFilterRange(
 							this.app,
-							'Date Range',
-							'How would you like to define the date range?',
-							['Between…', 'In the next…', 'In the past…', 'Next N occurrences…'],
-							['between', 'in-the-next', 'in-the-past', 'next-n'],
-							{ ...state(), nStr: '14', stepUnit: 'days' },
-							(value, s) => {
-								if (value === 'between') return { ...s, startMoment: startMoment.clone(), nStr: String(Math.max(1, endMoment.diff(startMoment, 'days') + 1)), stepUnit: 'days' };
-								if (value === 'in-the-past') {
-									const pastStart = startMoment.clone().subtract(14, 'days');
-									return { ...s, startMoment: pastStart, nStr: String(startMoment.diff(pastStart, 'days') + 1), stepUnit: 'days' };
-								}
-								if (value === 'next-n') {
-									const end = nthWeekdayOccurrence(startMoment, selectedWeekdays, 7);
-									return { ...s, startMoment: startMoment.clone(), nStr: String(end.diff(startMoment, 'days') + 1), stepUnit: 'days' };
-								}
-								return { ...s, startMoment: startMoment.clone(), nStr, stepUnit };
-							},
-						);
-						if (r === BACK) { step--; continue; }
-						rangeMethod = r as 'between' | 'in-the-next' | 'in-the-past' | 'next-n';
-						step++;
-
-					// step 2 — start date (between) or quantity (in the next)
-					} else if (step === 2) {
-						if (rangeMethod === 'between') {
-							const r = await prompt(
-								this.app,
-								'Start Date',
-								'Natural language or date math (e.g. today, +7, next monday, June 1, 2026-01-15…)',
-								startInput,
-								{ ...state(), nStr: '1', stepUnit: 'days' },
-								(value, s) => { const m = parseDate(value); return m.isValid() ? { ...s, startMoment: m } : s; },
-							);
-							if (r === BACK) { step--; continue; }
-							const m = parseDate(r);
-							if (!m.isValid()) { new Notice('Invalid date.'); continue; }
-							startInput  = r;
-							startMoment = m;
-							if (!endMoment.isAfter(startMoment, 'day')) endMoment = startMoment.clone().add(1, 'months');
-						} else if (rangeMethod === 'next-n') {
-							const r = await prompt(
-								this.app,
-								'Count',
-								'How many occurrences? (e.g. 7)',
-								nStr,
-								state(),
-								(value, s) => {
-									const count = Math.max(1, parseInt(value) || 1);
-									const end = nthWeekdayOccurrence(startMoment, selectedWeekdays, count);
-									return { ...s, startMoment: startMoment.clone(), nStr: String(end.diff(startMoment, 'days') + 1), stepUnit: 'days' };
-								},
-							);
-							if (r === BACK) { step--; continue; }
-							nStr = String(Math.max(1, parseInt(r) || 1));
-							step = 4;
-							continue;
-						} else {
-							const r = await promptDuration(
-								this.app,
-								'Duration',
-								'Enter the quantity and select the unit.',
-								nStr,
-								stepUnit,
-								state(),
-								(n, u, s) => {
-									if (rangeMethod === 'in-the-past') {
-										const nInt = parseInt(n) || 1;
-										const ps = startMoment.clone().subtract(nInt, u as DurationUnit);
-										return { ...s, startMoment: ps, nStr: String(Math.max(1, startMoment.diff(ps, 'days') + 1)), stepUnit: 'days' };
-									}
-									return { ...s, nStr: n, stepUnit: u };
-								},
-							);
-							if (r === BACK) { step--; continue; }
-							nStr = r.nStr;
-							stepUnit = r.stepUnit;
-							step = 4; // skip step 3 (end date, between only)
-							continue;
-						}
-						step++;
-
-					// step 3 — end date (between only)
-					} else if (step === 3) {
-						const defaultEnd = endInput || startMoment.clone().add(1, 'months').format('YYYY-MM-DD');
-						const r = await prompt(
-							this.app,
-							'End Date',
-							'Every matching day from start up to and including this date will be listed.',
-							defaultEnd,
+							rangeMethod,
+							startInput,
+							endInput || startMoment.clone().add(1, 'months').format('YYYY-MM-DD'),
+							nStr,
+							stepUnit,
+							selectedWeekdays,
 							state(),
-							(value, s) => {
-								const m = parseDate(value);
-								if (!m.isValid() || !m.isAfter(startMoment, 'day')) return s;
-								return { ...s, nStr: String(m.diff(startMoment, 'days') + 1) };
-							},
 						);
 						if (r === BACK) { step--; continue; }
-						const m = parseDate(r);
-						if (!m.isValid()) { new Notice('Invalid date.'); continue; }
-						if (!m.isSameOrAfter(startMoment, 'day')) { new Notice('End date must be on or after start date.'); continue; }
-						endInput  = r;
-						endMoment = m;
-						step++;
+						rangeMethod   = r.method;
+						startInput    = r.startInput;
+						startMoment   = r.startMoment;
+						endInput      = r.endInput;
+						endMoment     = r.endMoment;
+						nStr          = r.nStr;
+						stepUnit      = r.stepUnit;
+						step = 4;
+						continue;
 
 					// step 4 — use defaults or configure
 					} else if (step === 4) {
@@ -914,7 +898,7 @@ export default class DateListPlugin extends Plugin {
 							state(),
 							(_value, s) => s,
 						);
-						if (mode === BACK) { step = rangeMethod === 'between' ? 3 : 2; continue; }
+						if (mode === BACK) { step = 1; continue; }
 						if (mode === 'defaults') break outer;
 						step++;
 
@@ -1437,6 +1421,267 @@ class DurationModal extends Modal {
 }
 
 // -------------------------------------------------------------------
+// FilterRangeModal
+// -------------------------------------------------------------------
+class FilterRangeModal extends Modal {
+	private defaultMethod: 'between' | 'in-the-next' | 'in-the-past' | 'next-n';
+	private defaultStartInput: string;
+	private defaultEndInput: string;
+	private defaultN: string;
+	private defaultUnit: string;
+	private selectedWeekdays: number[];
+	private state: WizardState;
+	private resolve: (value: FilterRangeResult | typeof BACK) => void;
+	private confirmed = false;
+	private fpInstances: FpInstance[] = [];
+
+	constructor(
+		app: App,
+		defaultMethod: 'between' | 'in-the-next' | 'in-the-past' | 'next-n',
+		defaultStartInput: string,
+		defaultEndInput: string,
+		defaultN: string,
+		defaultUnit: string,
+		selectedWeekdays: number[],
+		state: WizardState,
+		resolve: (value: FilterRangeResult | typeof BACK) => void,
+	) {
+		super(app);
+		this.defaultMethod     = defaultMethod;
+		this.defaultStartInput = defaultStartInput;
+		this.defaultEndInput   = defaultEndInput;
+		this.defaultN          = defaultN;
+		this.defaultUnit       = defaultUnit;
+		this.selectedWeekdays  = selectedWeekdays;
+		this.state             = state;
+		this.resolve           = resolve;
+	}
+
+	onOpen() {
+		this.modalEl.addClass('date-list-modal');
+		this.modalEl.addClass('date-list-start-method-modal');
+		const { contentEl } = this;
+
+		this.titleEl.empty();
+		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
+		backBtn.addEventListener('click', () => this.close());
+		this.titleEl.createSpan({ text: 'Date Range' });
+
+		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
+		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
+		const right = body.createEl('div', { cls: 'date-list-modal-right' });
+
+		// — Method buttons —
+		left.createEl('p', { text: 'Range method', cls: 'date-list-instructions' });
+		const methodRow = left.createEl('div', { cls: 'date-list-duration-row' });
+		const methods: { label: string; value: 'between' | 'in-the-next' | 'in-the-past' | 'next-n' }[] = [
+			{ label: 'Between',     value: 'between' },
+			{ label: 'In the next', value: 'in-the-next' },
+			{ label: 'In the past', value: 'in-the-past' },
+			{ label: 'Next N',      value: 'next-n' },
+		];
+		let selectedMethod = this.defaultMethod;
+
+		// — Between section —
+		const betweenSection = left.createEl('div');
+		betweenSection.createEl('p', { text: 'Start date', cls: 'date-list-instructions' });
+		const { input: startInput, fp: fp1 } = createDateInputRow(betweenSection, this.defaultStartInput, 'e.g. today, +7, next monday, 2026-01-15…');
+		this.fpInstances.push(fp1);
+		betweenSection.createEl('p', { text: 'End date', cls: 'date-list-instructions' });
+		const { input: endInput, fp: fp2 } = createDateInputRow(betweenSection, this.defaultEndInput, 'e.g. tomorrow, +7, next friday, 2026-12-31…');
+		this.fpInstances.push(fp2);
+
+		// — Duration section (in-the-next / in-the-past) —
+		const durationSection = left.createEl('div');
+		durationSection.createEl('p', { text: 'Duration', cls: 'date-list-instructions' });
+		const durationRow = durationSection.createEl('div', { cls: 'date-list-duration-row' });
+		const nInput = durationRow.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
+		nInput.value = this.defaultN;
+		const units: { label: string; value: string }[] = [
+			{ label: 'Days',   value: 'days' },
+			{ label: 'Weeks',  value: 'weeks' },
+			{ label: 'Months', value: 'months' },
+			{ label: 'Years',  value: 'years' },
+		];
+		let selectedUnit = this.defaultUnit;
+
+		// — Count section (next-n) —
+		const countSection = left.createEl('div');
+		countSection.createEl('p', { text: 'Count', cls: 'date-list-instructions' });
+		const countInput = countSection.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
+		countInput.value = this.defaultN;
+		countInput.placeholder = 'e.g. 7';
+
+		// — Preview —
+		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
+		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
+
+		const buildState = (): WizardState => {
+			if (selectedMethod === 'between') {
+				const sm = parseDate(startInput.value);
+				const em = parseDate(endInput.value);
+				if (!sm.isValid()) return this.state;
+				if (!em.isValid() || !em.isAfter(sm, 'day')) return { ...this.state, startMoment: sm, nStr: '1', stepUnit: 'days' };
+				return { ...this.state, startMoment: sm, nStr: String(em.diff(sm, 'days') + 1), stepUnit: 'days' };
+			}
+			if (selectedMethod === 'in-the-next') {
+				const n = Math.max(1, parseInt(nInput.value) || 1);
+				return { ...this.state, startMoment: moment(), nStr: String(n), stepUnit: selectedUnit };
+			}
+			if (selectedMethod === 'in-the-past') {
+				const n = Math.max(1, parseInt(nInput.value) || 1);
+				const pastStart = moment().subtract(n, selectedUnit as DurationUnit);
+				return { ...this.state, startMoment: pastStart, nStr: String(Math.max(1, moment().diff(pastStart, 'days') + 1)), stepUnit: 'days' };
+			}
+			const count = Math.max(1, parseInt(countInput.value) || 1);
+			const end = nthWeekdayOccurrence(moment(), this.selectedWeekdays, count);
+			return { ...this.state, startMoment: moment(), nStr: String(end.diff(moment(), 'days') + 1), stepUnit: 'days' };
+		};
+
+		const updatePreview = () => renderPreview(previewEl, buildState());
+
+		// — Unit buttons —
+		const unitBtns = units.map((unit, i) => {
+			const btn = durationRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
+			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: unit.label, cls: 'date-list-option-text' });
+			if (unit.value === selectedUnit) btn.addClass('is-active');
+			btn.addEventListener('click', () => {
+				selectedUnit = unit.value;
+				unitBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				updatePreview();
+			});
+			btn.addEventListener('focus', () => {
+				selectedUnit = unit.value;
+				unitBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				updatePreview();
+			});
+			return btn;
+		});
+
+		const showMethod = (m: typeof selectedMethod) => {
+			selectedMethod = m;
+			betweenSection.style.display  = m === 'between'                                  ? '' : 'none';
+			durationSection.style.display = m === 'in-the-next' || m === 'in-the-past'    ? '' : 'none';
+			countSection.style.display    = m === 'next-n'                                   ? '' : 'none';
+			updatePreview();
+		};
+		showMethod(selectedMethod);
+
+		// — Method buttons —
+		const methodBtns = methods.map((method, i) => {
+			const btn = methodRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
+			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: method.label, cls: 'date-list-option-text' });
+			if (method.value === selectedMethod) btn.addClass('is-active');
+			btn.addEventListener('click', () => {
+				methodBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				showMethod(method.value);
+				window.setTimeout(() => {
+					if (method.value === 'between') startInput.focus();
+					else if (method.value === 'next-n') countInput.focus();
+					else nInput.focus();
+				}, 30);
+			});
+			btn.addEventListener('focus', () => {
+				methodBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				showMethod(method.value);
+			});
+			return btn;
+		});
+
+		const submit = () => {
+			if (selectedMethod === 'between') {
+				const sm = parseDate(startInput.value);
+				if (!sm.isValid()) { new Notice('Invalid start date.'); startInput.focus(); return; }
+				const em = parseDate(endInput.value);
+				if (!em.isValid()) { new Notice('Invalid end date.'); endInput.focus(); return; }
+				if (!em.isSameOrAfter(sm, 'day')) { new Notice('End date must be on or after start date.'); endInput.focus(); return; }
+				this.confirmed = true;
+				this.resolve({
+					method: 'between',
+					startInput: startInput.value, startMoment: sm,
+					endInput: endInput.value, endMoment: em,
+					nStr: String(Math.max(1, em.diff(sm, 'days') + 1)), stepUnit: 'days',
+				});
+			} else if (selectedMethod === 'in-the-next' || selectedMethod === 'in-the-past') {
+				const n = parseInt(nInput.value);
+				if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); nInput.focus(); return; }
+				this.confirmed = true;
+				this.resolve({
+					method: selectedMethod,
+					startInput: '', startMoment: moment(),
+					endInput: '', endMoment: moment(),
+					nStr: String(n), stepUnit: selectedUnit,
+				});
+			} else {
+				const count = parseInt(countInput.value);
+				if (isNaN(count) || count < 1) { new Notice('Enter a positive number.'); countInput.focus(); return; }
+				this.confirmed = true;
+				this.resolve({
+					method: 'next-n',
+					startInput: '', startMoment: moment(),
+					endInput: '', endMoment: moment(),
+					nStr: String(count), stepUnit: 'days',
+				});
+			}
+			this.close();
+		};
+
+		startInput.addEventListener('input', updatePreview);
+		endInput.addEventListener('input',   updatePreview);
+		nInput.addEventListener('input',     updatePreview);
+		countInput.addEventListener('input', updatePreview);
+
+		startInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+		endInput.addEventListener('keydown',   (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+		nInput.addEventListener('keydown',     (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+		countInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+			const active = activeDocument.activeElement;
+			if (active === startInput || active === endInput || active === nInput || active === countInput) return;
+			const mIdx = methodBtns.findIndex(b => b === active);
+			const uIdx = unitBtns.findIndex(b => b === active);
+			if (mIdx >= 0) {
+				if (e.key === 'ArrowRight') { e.preventDefault(); methodBtns[(mIdx + 1) % methodBtns.length]?.focus(); }
+				else if (e.key === 'ArrowLeft') { e.preventDefault(); methodBtns[(mIdx - 1 + methodBtns.length) % methodBtns.length]?.focus(); }
+				else if (e.key === 'ArrowDown') {
+					e.preventDefault();
+					if (selectedMethod === 'between') startInput.focus();
+					else if (selectedMethod === 'next-n') countInput.focus();
+					else nInput.focus();
+				}
+				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
+				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < methodBtns.length) { e.preventDefault(); methodBtns[idx]!.focus(); } }
+			} else if (uIdx >= 0) {
+				if (e.key === 'ArrowRight') { e.preventDefault(); unitBtns[(uIdx + 1) % unitBtns.length]?.focus(); }
+				else if (e.key === 'ArrowLeft') { e.preventDefault(); unitBtns[(uIdx - 1 + unitBtns.length) % unitBtns.length]?.focus(); }
+				else if (e.key === 'ArrowUp') { e.preventDefault(); (methodBtns.find(b => b.hasClass('is-active')) ?? methodBtns[0])?.focus(); }
+				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
+				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < unitBtns.length) { e.preventDefault(); unitBtns[idx]!.focus(); } }
+			}
+		});
+
+		updatePreview();
+		window.setTimeout(() => {
+			const defaultMethodIdx = methods.findIndex(m => m.value === this.defaultMethod);
+			methodBtns[defaultMethodIdx >= 0 ? defaultMethodIdx : 0]?.focus();
+		}, 50);
+	}
+
+	onClose() {
+		this.fpInstances.forEach(fp => fp.destroy());
+		if (!this.confirmed) this.resolve(BACK);
+		this.contentEl.empty();
+	}
+}
+
+// -------------------------------------------------------------------
 // StartMethodModal
 // -------------------------------------------------------------------
 class StartMethodModal extends Modal {
@@ -1448,6 +1693,7 @@ class StartMethodModal extends Modal {
 	private state: WizardState;
 	private resolve: (value: StartMethodResult | typeof BACK) => void;
 	private confirmed = false;
+	private fpInstances: FpInstance[] = [];
 
 	constructor(
 		app: App,
@@ -1485,9 +1731,8 @@ class StartMethodModal extends Modal {
 
 		// — Start date —
 		left.createEl('p', { text: 'Start date', cls: 'date-list-instructions' });
-		const startInput = left.createEl('input', { type: 'text', cls: 'date-list-input' });
-		startInput.value = this.defaultStartInput;
-		startInput.placeholder = 'e.g. today, +7, next monday, 2026-01-15…';
+		const { input: startInput, fp: fp1 } = createDateInputRow(left, this.defaultStartInput, 'e.g. today, +7, next monday, 2026-01-15…');
+		this.fpInstances.push(fp1);
 
 		// — Method buttons —
 		const methodRow = left.createEl('div', { cls: 'date-list-duration-row' });
@@ -1500,9 +1745,8 @@ class StartMethodModal extends Modal {
 		// — Specific date section —
 		const specificSection = left.createEl('div');
 		specificSection.createEl('p', { text: 'End date', cls: 'date-list-instructions' });
-		const endInput = specificSection.createEl('input', { type: 'text', cls: 'date-list-input' });
-		endInput.value = this.defaultEndInput;
-		endInput.placeholder = 'e.g. tomorrow, +7, next friday, 2026-12-31…';
+		const { input: endInput, fp: fp2 } = createDateInputRow(specificSection, this.defaultEndInput, 'e.g. tomorrow, +7, next friday, 2026-12-31…');
+		this.fpInstances.push(fp2);
 
 		// — Duration section —
 		const durationSection = left.createEl('div');
@@ -1646,6 +1890,7 @@ class StartMethodModal extends Modal {
 	}
 
 	onClose() {
+		this.fpInstances.forEach(fp => fp.destroy());
 		if (!this.confirmed) this.resolve(BACK);
 		this.contentEl.empty();
 	}
