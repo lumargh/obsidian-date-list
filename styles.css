@@ -195,6 +195,49 @@
 	margin-bottom: 0;
 }
 
+.date-list-custom-section {
+	margin-top: 4px;
+	padding-top: 8px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.date-list-method-row {
+	flex-wrap: wrap;
+	margin-bottom: 8px;
+}
+
+.date-list-modal-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 16px;
+}
+
+.date-list-ok-btn {
+	padding: 4px 14px;
+	flex-shrink: 0;
+	white-space: nowrap;
+}
+
+.date-list-configure-btn {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	flex: 1;
+	color: var(--text-muted);
+	background: transparent;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: var(--font-smaller);
+	cursor: pointer;
+}
+
+.date-list-configure-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
 .date-list-calendar-btn {
 	flex-shrink: 0;
 	padding: 4px 6px;
@@ -202,14 +245,13 @@
 	align-items: center;
 }
 
-.date-list-fp-anchor {
-	width: 0;
-	height: 0;
-	padding: 0;
-	border: none;
-	opacity: 0;
-	pointer-events: none;
-	position: absolute;
+.date-list-calendar-btn.is-active {
+	background: var(--background-modifier-hover);
+}
+
+.flatpickr-calendar.date-list-cal-floating {
+	position: fixed !important;
+	z-index: 99999;
 }
 
 /* ── Flatpickr — Obsidian theme overrides ────────────────────────── */
@@ -220,7 +262,6 @@
 	box-shadow: var(--shadow-s);
 	border-radius: var(--radius-m);
 	color: var(--text-normal);
-
 }
 
 .flatpickr-months .flatpickr-month,
@@ -305,4 +346,64 @@ span.flatpickr-weekday {
 
 .numInputWrapper span.arrowDown:after {
 	border-top-color: var(--text-muted);
+}
+
+/* ── @ date suggest ──────────────────────────────────────────────── */
+
+.date-list-suggest-label {
+	color: var(--text-muted);
+	font-size: var(--font-smaller);
+	min-width: 80px;
+	margin-right: 8px;
+}
+
+.date-list-suggest-insert {
+	font-family: var(--font-monospace);
+	font-size: var(--font-small);
+	flex: 1;
+}
+
+.date-list-suggest-display {
+	color: var(--text-muted);
+	font-size: var(--font-smaller);
+	margin-left: 12px;
+}
+
+.date-list-suggest-placeholder {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+/* ── Quick insert inline custom row ─────────────────────────────── */
+
+.date-list-quick-custom-row {
+	cursor: default;
+}
+
+.date-list-quick-custom-row:focus-within {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.date-list-quick-custom-input {
+	flex: 1;
+	min-width: 0;
+	background: transparent;
+	border: none;
+	outline: none;
+	color: inherit;
+	font-size: inherit;
+	font-family: inherit;
+	padding: 0;
+	cursor: text;
+}
+
+.date-list-quick-custom-input::placeholder {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.date-list-quick-custom-row:focus-within .date-list-quick-custom-input::placeholder {
+	color: var(--text-on-accent);
+	opacity: 0.6;
 }

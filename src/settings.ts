@@ -3,44 +3,22 @@ import { App, PluginSettingTab, Setting, moment as _m } from 'obsidian';
 const moment = _m as any;
 import DateListPlugin from './main';
 
-export interface LastUsed {
-	quantity: string;
-	stepUnit: string;
-	fmt: string;
-	wikiLinks: boolean;
-	alias: string;
-	prefix: string;
-	postfix: string;
-}
-
-export const DEFAULT_LAST_USED: LastUsed = {
-	quantity: '1',
-	stepUnit: 'days',
-	fmt: 'YYYY-MM-DD',
-	wikiLinks: false,
-	alias: '',
-	prefix: '',
-	postfix: '',
-};
-
 export interface DateListSettings {
 	defaultFormat: string;
-	defaultQuantity: string;
-	defaultStepUnit: string;
 	defaultWikiLinks: boolean;
 	defaultAlias: string;
 	defaultPrefix: string;
 	defaultPostfix: string;
+	suggestTrigger: string;
 }
 
 export const DEFAULT_SETTINGS: DateListSettings = {
 	defaultFormat: 'YYYY-MM-DD',
-	defaultQuantity: '1',
-	defaultStepUnit: 'days',
 	defaultWikiLinks: false,
 	defaultAlias: '',
 	defaultPrefix: '',
 	defaultPostfix: '',
+	suggestTrigger: '@',
 };
 
 export class DateListSettingTab extends PluginSettingTab {
@@ -54,6 +32,20 @@ export class DateListSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Inline date trigger')
+			.setDesc("Character(s) that activate the date autocomplete while typing. Don't use \"/\" if you have the Slash Commands plugin enabled.")
+			.addText((text) =>
+				text
+					.setPlaceholder('@')
+					.setValue(this.plugin.settings.suggestTrigger)
+					.onChange(async (value) => {
+						if (value.length === 0) return;
+						this.plugin.settings.suggestTrigger = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 
 		new Setting(containerEl)
 			.setName('Default date format')

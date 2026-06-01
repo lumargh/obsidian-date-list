@@ -1,12 +1,17 @@
+
 import {
 	App,
 	Editor,
+	EditorSuggest,
+	EditorSuggestContext,
+	EditorSuggestTriggerInfo,
 	MarkdownView,
 	MarkdownFileInfo,
 	Modal,
 	Notice,
 	Plugin,
 	setIcon,
+	TFile,
 	moment as _m,
 } from 'obsidian';
 import { DEFAULT_SETTINGS, DateListSettings, DateListSettingTab } from './settings';
@@ -22,6 +27,7 @@ type DurationUnit = 'days' | 'weeks' | 'months' | 'years';
 
 // Sentinel returned by any modal dismissed without a confirmed selection.
 const BACK = Symbol('back');
+const CONFIGURE = Symbol('configure');
 
 // -------------------------------------------------------------------
 // Wizard state — snapshot passed into every modal for live preview
@@ -100,28 +106,61 @@ function createDateInputRow(
 	const calBtn = row.createEl('button', { cls: 'date-list-calendar-btn', attr: { type: 'button' } });
 	setIcon(calBtn, 'calendar');
 
-	// Invisible anchor element that Flatpickr attaches to, positioned near the button
-	const fpAnchor = row.createEl('input', { type: 'text', cls: 'date-list-fp-anchor' });
-	fpAnchor.tabIndex = -1;
-
+	// Init flatpickr inline on a throwaway anchor, then move the calendar to body
+	// so it floats above the modal rather than pushing it open.
+	const fpAnchor = row.createEl('div');
 	const fp = flatpickr(fpAnchor, {
+		inline: true,
 		dateFormat: 'Y-m-d',
-		positionElement: calBtn,
 		disableMobile: true,
 		onChange: (_dates: Date[], dateStr: string) => {
 			if (dateStr) {
 				input.value = dateStr;
 				input.dispatchEvent(new Event('input'));
+				hideCal();
 			}
 		},
-	});
+	}) as FpInstance;
+
+	const cal = fp.calendarContainer;
+	cal.classList.add('date-list-cal-floating');
+	document.body.appendChild(cal);
+	fpAnchor.remove();
+	cal.style.display = 'none';
+
+	const hideCal = () => {
+		cal.style.display = 'none';
+		calBtn.classList.remove('is-active');
+		document.removeEventListener('mousedown', handleOutside, true);
+	};
+
+	const handleOutside = (e: MouseEvent) => {
+		// Self-clean if the calendar was destroyed while listener was registered
+		if (!document.body.contains(cal)) {
+			document.removeEventListener('mousedown', handleOutside, true);
+			return;
+		}
+		if (!cal.contains(e.target as Node) && !calBtn.contains(e.target as Node)) {
+			hideCal();
+		}
+	};
 
 	calBtn.addEventListener('click', (e) => {
 		e.preventDefault();
 		e.stopPropagation();
-		const m = parseDate(input.value);
-		if (m.isValid()) fp.setDate(m.toDate(), false);
-		fp.open();
+		if (cal.style.display !== 'none') {
+			hideCal();
+		} else {
+			const m = parseDate(input.value);
+			if (m.isValid()) fp.setDate(m.toDate(), false);
+			const rect = calBtn.getBoundingClientRect();
+			cal.style.top = `${rect.bottom + 4}px`;
+			cal.style.left = `${rect.left}px`;
+			cal.style.display = '';
+			calBtn.classList.add('is-active');
+			// Defer listener so this click doesn't immediately trigger it
+			window.setTimeout(() => document.addEventListener('mousedown', handleOutside, true), 0);
+		}
 	});
 
 	return { input, fp };
@@ -146,18 +185,59 @@ function parseDate(input: string) {
 	if (s === 'tomorrow') return moment().add(1, 'days');
 	if (s === 'yesterday') return moment().subtract(1, 'days');
 
+	// +N or -N relative day offsets
 	const relative = s.match(/^([+-]\d+)$/);
 	if (relative) return moment().add(parseInt(relative[1]!), 'days');
 
 	const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-	const nextDay = s.match(/^next (\w+)$/);
-	if (nextDay) {
-		const idx = weekdays.indexOf(nextDay[1]!);
+
+	// next <weekday|week|month|year>
+	const nextWord = s.match(/^next (\w+)$/);
+	if (nextWord) {
+		const word = nextWord[1]!;
+		const idx = weekdays.indexOf(word);
 		if (idx !== -1) {
 			const d = moment().day(idx);
 			return d.isSameOrBefore(moment(), 'day') ? d.add(7, 'days') : d;
 		}
+		if (word === 'week')  return moment().add(1, 'weeks').startOf('isoWeek');
+		if (word === 'month') return moment().add(1, 'months').startOf('month');
+		if (word === 'year')  return moment().add(1, 'years').startOf('year');
 	}
+
+	// last <weekday|week|month|year>
+	const lastWord = s.match(/^last (\w+)$/);
+	if (lastWord) {
+		const word = lastWord[1]!;
+		const idx = weekdays.indexOf(word);
+		if (idx !== -1) {
+			const d = moment().day(idx);
+			return d.isSameOrAfter(moment(), 'day') ? d.subtract(7, 'days') : d;
+		}
+		if (word === 'week')  return moment().subtract(1, 'weeks').startOf('isoWeek');
+		if (word === 'month') return moment().subtract(1, 'months').startOf('month');
+		if (word === 'year')  return moment().subtract(1, 'years').startOf('year');
+	}
+
+	// this week/month/year
+	const thisWord = s.match(/^this (week|month|year)$/);
+	if (thisWord) {
+		if (thisWord[1] === 'week')  return moment().startOf('isoWeek');
+		if (thisWord[1] === 'month') return moment().startOf('month');
+		if (thisWord[1] === 'year')  return moment().startOf('year');
+	}
+
+	// in N days/weeks/months/years
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const inN = s.match(/^in (\d+) (days?|weeks?|months?|years?)$/);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	if (inN) return moment().add(parseInt(inN[1]!), inN[2]! as any);
+
+	// N days/weeks/months/years ago
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const nAgo = s.match(/^(\d+) (days?|weeks?|months?|years?) ago$/);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	if (nAgo) return moment().subtract(parseInt(nAgo[1]!), nAgo[2]! as any);
 
 	return moment(input, [
 		'YYYY-MM-DD',
@@ -195,33 +275,202 @@ function suggest<T>(
 	previewMapper: (value: T, state: WizardState) => WizardState,
 	defaultValue?: T,
 	subtexts?: string[],
-): Promise<T | typeof BACK> {
+	showConfigureBtn = false,
+): Promise<T | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new SuggesterModal(app, title, instructions, options, values, state, previewMapper, resolve, defaultValue, subtexts).open(),
+		new SuggesterModal(app, title, instructions, options, values, state, previewMapper, resolve, defaultValue, subtexts, showConfigureBtn).open(),
 	);
 }
 
-interface StartMethodResult {
-	startInput: string;
-	startMoment: MomentInstance;
-	method: 'specific-date' | 'duration';
-	endInput: string;
-	endMoment: MomentInstance;
-	nStr: string;
-	stepUnit: string;
+function promptQuickInsert(
+	app: App,
+	presets: { label: string; formatted: string; m: MomentInstance }[],
+	blankState: WizardState,
+	buildState: (m: MomentInstance) => WizardState,
+): Promise<MomentInstance | typeof BACK | typeof CONFIGURE> {
+	return new Promise((resolve) =>
+		new QuickInsertModal(app, presets, blankState, buildState, resolve).open(),
+	);
 }
 
-function promptStartMethod(
+// Runs the format → wiki links → prefix → postfix wizard and returns the updated
+// config, or BACK if the user dismissed from the very first screen.
+async function runFormatWizard(
 	app: App,
+	previewMoment: MomentInstance,
+	initial: { fmt: string; wikiLinks: boolean; alias: string; prefix: string; postfix: string },
+	settings: DateListSettings,
+): Promise<{ fmt: string; wikiLinks: boolean; alias: string; prefix: string; postfix: string } | typeof BACK> {
+	let { fmt, wikiLinks, alias, prefix, postfix } = initial;
+
+	const makeState = (): WizardState => ({
+		startMoment: previewMoment.clone(),
+		nStr: '7', stepUnit: 'days', weekdays: null,
+		fmt, wikiLinks, alias, prefix, postfix,
+	});
+
+	let step = 0;
+	while (true) {
+		// step 0 — date format
+		if (step === 0) {
+			const effectiveDefault = settings.defaultFormat || 'YYYY-MM-DD';
+			const fmtPresets: { label: string; value: string; fmt: string }[] = [
+				{ label: previewMoment.format('YYYY-MM-DD'),      value: 'iso',     fmt: 'YYYY-MM-DD' },
+				{ label: previewMoment.format('YYYY/MM/DD'),      value: 'folder',  fmt: 'YYYY/MM/DD' },
+				{ label: previewMoment.format('MMMM Do, YYYY'),   value: 'long',    fmt: 'MMMM Do, YYYY' },
+				{ label: previewMoment.format('ddd, MMM D'),      value: 'short',   fmt: 'ddd, MMM D' },
+				{ label: previewMoment.format('ddd, MMM D YYYY'), value: 'shortyr', fmt: 'ddd, MMM D YYYY' },
+				{ label: previewMoment.format('MM/DD/YYYY'),      value: 'us',      fmt: 'MM/DD/YYYY' },
+				{ label: previewMoment.format('DD/MM/YYYY'),      value: 'eu',      fmt: 'DD/MM/YYYY' },
+			].filter(p => p.fmt !== effectiveDefault);
+			const r = await suggest<string>(
+				app, 'Date Format', 'Choose how each date appears.',
+				[previewMoment.format(effectiveDefault), ...fmtPresets.map(p => p.label), 'Custom…'],
+				['default', ...fmtPresets.map(p => p.value), 'custom'],
+				makeState(),
+				(value, s) => {
+					if (value === 'default') return { ...s, fmt: effectiveDefault };
+					const preset = fmtPresets.find(p => p.value === value);
+					if (preset) return { ...s, fmt: preset.fmt };
+					return s;
+				},
+				undefined,
+				[(FMT_CATS[effectiveDefault] ? FMT_CATS[effectiveDefault] + ' · ' : '') + 'default', ...fmtPresets.map(p => FMT_CATS[p.fmt] ?? ''), ''],
+			);
+			if (r === BACK) return BACK;
+			if (r === 'default') { fmt = effectiveDefault; step++; }
+			else if (r !== 'custom') { fmt = fmtPresets.find(p => p.value === r)!.fmt; step++; }
+			else {
+				const c = await prompt(app, 'Custom Format', 'Enter a format string (e.g. YYYY-MM-DD)', 'MMMM Do, YYYY', makeState(), (value, s) => ({ ...s, fmt: value }));
+				if (c === BACK) continue;
+				fmt = c; step++;
+			}
+		// step 1 — wiki links + alias
+		} else if (step === 1) {
+			const wikiDefault = settings.defaultWikiLinks;
+			const r = await suggest<boolean>(
+				app, 'Wiki Links', 'Wrap each date in [[ ]] to create Obsidian note links, or output as plain text.',
+				wikiDefault ? ['Wrap in [[wikilinks]] (default)', 'Plain text'] : ['Plain text (default)', 'Wrap in [[wikilinks]]'],
+				wikiDefault ? [true, false] : [false, true],
+				makeState(),
+				(value, s) => ({ ...s, wikiLinks: value, alias: value ? s.alias : '' }),
+			);
+			if (r === BACK || r === CONFIGURE) { step--; continue; }
+			wikiLinks = r;
+			if (!wikiLinks) { alias = ''; step++; continue; }
+			const defaultAliasLabel = settings.defaultAlias ? `${previewMoment.format(settings.defaultAlias)} (default)` : 'None (default)';
+			const aliasPresets: { label: string; value: string; fmt: string }[] = [
+				{ label: previewMoment.format('ddd, MMM D'),    value: 'short',   fmt: 'ddd, MMM D' },
+				{ label: previewMoment.format('MMMM Do'),       value: 'long',    fmt: 'MMMM Do' },
+				{ label: previewMoment.format('MMMM D, YYYY'),  value: 'full',    fmt: 'MMMM D, YYYY' },
+				{ label: previewMoment.format('dddd'),           value: 'weekday', fmt: 'dddd' },
+				{ label: previewMoment.format('dddd, MMMM Do'), value: 'daylong', fmt: 'dddd, MMMM Do' },
+			].filter(p => p.fmt !== settings.defaultAlias);
+			const aliasR = await suggest<string>(
+				app, 'Alias', 'Add a display alias to each link, e.g. [[2026-01-15|Thu, Jan 15]]. Leave as "None" to skip.',
+				[defaultAliasLabel, ...aliasPresets.map(p => p.label), 'Custom…'],
+				['default', ...aliasPresets.map(p => p.value), 'custom'],
+				{ ...makeState(), wikiLinks: true },
+				(value, s) => {
+					if (value === 'default') return { ...s, alias: settings.defaultAlias };
+					const preset = aliasPresets.find(p => p.value === value);
+					if (preset) return { ...s, alias: preset.fmt };
+					return s;
+				},
+			);
+			if (aliasR === BACK) continue;
+			if (aliasR === 'default') { alias = settings.defaultAlias; }
+			else if (aliasR !== 'custom') { alias = aliasPresets.find(p => p.value === aliasR)!.fmt; }
+			else {
+				const c = await prompt(app, 'Custom Alias', 'Enter a Moment.js format string for the alias, e.g. ddd, MMM D', '', { ...makeState(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
+				if (c === BACK) continue;
+				alias = c;
+			}
+			step++;
+		// step 2 — prefix
+		} else if (step === 2) {
+			const defaultPrefixLabel = settings.defaultPrefix ? `${JSON.stringify(settings.defaultPrefix)} (default)` : 'None (default)';
+			const prefixPresets: { label: string; value: string; str: string }[] = [
+				{ label: 'None',    value: 'none',  str: '' },
+				{ label: '- ',     value: 'dash',  str: '- ' },
+				{ label: '* ',     value: 'star',  str: '* ' },
+				{ label: '+ ',     value: 'plus',  str: '+ ' },
+				{ label: '> ',     value: 'quote', str: '> ' },
+				{ label: '- [ ] ', value: 'task',  str: '- [ ] ' },
+				{ label: '- [x] ', value: 'done',  str: '- [x] ' },
+			].filter(p => p.str !== settings.defaultPrefix);
+			const r = await suggest<string>(
+				app, 'Prefix', 'Optionally prefix each date with a list marker.',
+				[defaultPrefixLabel, ...prefixPresets.map(p => p.label), 'Custom…'],
+				['default', ...prefixPresets.map(p => p.value), 'custom'],
+				makeState(),
+				(value, s) => {
+					if (value === 'default') return { ...s, prefix: settings.defaultPrefix };
+					const preset = prefixPresets.find(p => p.value === value);
+					if (preset) return { ...s, prefix: preset.str };
+					return s;
+				},
+			);
+			if (r === BACK) { step--; continue; }
+			if (r === 'default') { prefix = settings.defaultPrefix; step++; }
+			else if (r !== 'custom') { prefix = prefixPresets.find(p => p.value === r)!.str; step++; }
+			else {
+				const c = await prompt(app, 'Custom Prefix', 'Enter a prefix to prepend to each date', '> ', makeState(), (value, s) => ({ ...s, prefix: value }));
+				if (c === BACK) continue;
+				prefix = c; step++;
+			}
+		// step 3 — postfix
+		} else {
+			const defaultPostfixLabel = settings.defaultPostfix ? `${JSON.stringify(settings.defaultPostfix)} (default)` : 'None (default)';
+			const postfixPresets: { label: string; value: string; str: string }[] = [
+				{ label: 'None',  value: 'none',   str: '' },
+				{ label: ' - ',  value: 'dash',   str: ' - ' },
+				{ label: ' — ',  value: 'emdash', str: ' — ' },
+				{ label: ' :: ', value: 'dv',     str: ' :: ' },
+				{ label: ':',    value: 'colon',  str: ':' },
+				{ label: ' | ',  value: 'pipe',   str: ' | ' },
+			].filter(p => p.str !== settings.defaultPostfix);
+			const r = await suggest<string>(
+				app, 'Postfix', 'Optionally append text after each date.',
+				[defaultPostfixLabel, ...postfixPresets.map(p => p.label), 'Custom…'],
+				['default', ...postfixPresets.map(p => p.value), 'custom'],
+				makeState(),
+				(value, s) => {
+					if (value === 'default') return { ...s, postfix: settings.defaultPostfix };
+					const preset = postfixPresets.find(p => p.value === value);
+					if (preset) return { ...s, postfix: preset.str };
+					return s;
+				},
+			);
+			if (r === BACK) { step--; continue; }
+			if (r === 'default') { postfix = settings.defaultPostfix; }
+			else if (r !== 'custom') { postfix = postfixPresets.find(p => p.value === r)!.str; }
+			else {
+				const c = await prompt(app, 'Custom Postfix', 'Enter text to append after each date', ':: ', makeState(), (value, s) => ({ ...s, postfix: value }));
+				if (c === BACK) continue;
+				postfix = c;
+			}
+			return { fmt, wikiLinks, alias, prefix, postfix };
+		}
+	}
+}
+
+interface InsertDateResult {
+	startInput: string;
+	startMoment: MomentInstance;
+	endInput: string;
+	endMoment: MomentInstance;
+}
+
+function promptInsertDate(
+	app: App,
+	rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[],
 	defaultStartInput: string,
-	defaultMethod: 'specific-date' | 'duration',
 	defaultEndInput: string,
-	defaultN: string,
-	defaultUnit: string,
 	state: WizardState,
-): Promise<StartMethodResult | typeof BACK> {
+): Promise<InsertDateResult | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new StartMethodModal(app, defaultStartInput, defaultMethod, defaultEndInput, defaultN, defaultUnit, state, resolve).open(),
+		new InsertDateModal(app, rangePresets, defaultStartInput, defaultEndInput, state, resolve).open(),
 	);
 }
 
@@ -260,7 +509,7 @@ function promptFilterRange(
 	defaultUnit: string,
 	selectedWeekdays: number[],
 	state: WizardState,
-): Promise<FilterRangeResult | typeof BACK> {
+): Promise<FilterRangeResult | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
 		new FilterRangeModal(app, defaultMethod, defaultStartInput, defaultEndInput, defaultN, defaultUnit, selectedWeekdays, state, resolve).open(),
 	);
@@ -294,8 +543,8 @@ export default class DateListPlugin extends Plugin {
 				const today = moment();
 				const state = (): WizardState => ({
 					startMoment: today.clone(),
-					nStr: this.settings.defaultQuantity || '1',
-					stepUnit: this.settings.defaultStepUnit || 'days',
+					nStr: '7',
+					stepUnit: 'days',
 					weekdays: null,
 					fmt,
 					wikiLinks,
@@ -352,7 +601,7 @@ export default class DateListPlugin extends Plugin {
 							state(),
 							(value, s) => ({ ...s, wikiLinks: value, alias: value ? s.alias : '' }),
 						);
-						if (r === BACK) { step--; continue; }
+						if (r === BACK || r === CONFIGURE) { step--; continue; }
 						wikiLinks = r;
 						if (!wikiLinks) { alias = ''; }
 						step++;
@@ -480,293 +729,46 @@ export default class DateListPlugin extends Plugin {
 			id: 'date-list',
 			name: 'Insert Date List',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
-				let step = 0;
-				let fromPreset = false;
-				let method: 'specific-date' | 'duration' = 'specific-date';
 				let startInput = moment().format('YYYY-MM-DD');
 				let endInput   = '';
-				let nStr     = this.settings.defaultQuantity || '1';
-				let stepUnit = this.settings.defaultStepUnit || 'days';
 				let fmt        = this.settings.defaultFormat   || 'YYYY-MM-DD';
 				let wikiLinks  = this.settings.defaultWikiLinks;
 				let alias      = this.settings.defaultAlias;
 				let prefix     = this.settings.defaultPrefix;
 				let postfix    = this.settings.defaultPostfix;
-
-				const parsedStart = parseDate(startInput);
-				let startMoment = parsedStart.isValid() ? parsedStart : moment();
+				let startMoment = moment();
 				let endMoment   = startMoment.clone().add(1, 'days');
 
 				const now = moment();
-				const rangePresets: { name: string; label: string; value: string; start: MomentInstance; end: MomentInstance }[] = [
-					{
-						name: 'This week',
-						label: `${now.clone().startOf('isoWeek').format('MMM D')} – ${now.clone().endOf('isoWeek').startOf('day').format('MMM D')}`,
-						value: 'this-week',
-						start: now.clone().startOf('isoWeek'),
-						end: now.clone().endOf('isoWeek').startOf('day'),
-					},
-					{
-						name: 'Next week',
-						label: `${now.clone().add(1,'weeks').startOf('isoWeek').format('MMM D')} – ${now.clone().add(1,'weeks').endOf('isoWeek').startOf('day').format('MMM D')}`,
-						value: 'next-week',
-						start: now.clone().add(1,'weeks').startOf('isoWeek'),
-						end: now.clone().add(1,'weeks').endOf('isoWeek').startOf('day'),
-					},
-					{
-						name: 'This month',
-						label: `${now.clone().startOf('month').format('MMM D')} – ${now.clone().endOf('month').startOf('day').format('MMM D')}`,
-						value: 'this-month',
-						start: now.clone().startOf('month'),
-						end: now.clone().endOf('month').startOf('day'),
-					},
-					{
-						name: 'Next month',
-						label: `${now.clone().add(1,'months').startOf('month').format('MMM D')} – ${now.clone().add(1,'months').endOf('month').startOf('day').format('MMM D')}`,
-						value: 'next-month',
-						start: now.clone().add(1,'months').startOf('month'),
-						end: now.clone().add(1,'months').endOf('month').startOf('day'),
-					},
-					{
-						name: 'Next 7 days',
-						label: `${now.format('MMM D')} – ${now.clone().add(6,'days').format('MMM D')}`,
-						value: 'next-7',
-						start: now.clone(),
-						end: now.clone().add(6,'days'),
-					},
-					{
-						name: 'Next 30 days',
-						label: `${now.format('MMM D')} – ${now.clone().add(29,'days').format('MMM D')}`,
-						value: 'next-30',
-						start: now.clone(),
-						end: now.clone().add(29,'days'),
-					},
+				const rangePresets = [
+					{ name: 'This week',   label: `${now.clone().startOf('isoWeek').format('MMM D')} – ${now.clone().endOf('isoWeek').startOf('day').format('MMM D')}`,                                 start: now.clone().startOf('isoWeek'),             end: now.clone().endOf('isoWeek').startOf('day') },
+					{ name: 'Next week',   label: `${now.clone().add(1,'weeks').startOf('isoWeek').format('MMM D')} – ${now.clone().add(1,'weeks').endOf('isoWeek').startOf('day').format('MMM D')}`,   start: now.clone().add(1,'weeks').startOf('isoWeek'), end: now.clone().add(1,'weeks').endOf('isoWeek').startOf('day') },
+					{ name: 'This month',  label: `${now.clone().startOf('month').format('MMM D')} – ${now.clone().endOf('month').startOf('day').format('MMM D')}`,                                     start: now.clone().startOf('month'),               end: now.clone().endOf('month').startOf('day') },
+					{ name: 'Next month',  label: `${now.clone().add(1,'months').startOf('month').format('MMM D')} – ${now.clone().add(1,'months').endOf('month').startOf('day').format('MMM D')}`,     start: now.clone().add(1,'months').startOf('month'), end: now.clone().add(1,'months').endOf('month').startOf('day') },
+					{ name: 'Next 7 days', label: `${now.format('MMM D')} – ${now.clone().add(6,'days').format('MMM D')}`,                                                                             start: now.clone(),                                end: now.clone().add(6,'days') },
+					{ name: 'Next 30 days',label: `${now.format('MMM D')} – ${now.clone().add(29,'days').format('MMM D')}`,                                                                            start: now.clone(),                                end: now.clone().add(29,'days') },
 				];
 
-				const state = (): WizardState => {
-					if (method === 'specific-date') {
-						return {
-							startMoment: startMoment.clone(),
-							nStr: String(Math.max(1, endMoment.diff(startMoment, 'days') + 1)),
-							stepUnit: 'days', weekdays: null,
-							fmt, wikiLinks, alias, prefix, postfix,
-						};
+				const state = (): WizardState => ({
+					startMoment: startMoment.clone(),
+					nStr: String(Math.max(1, endMoment.diff(startMoment, 'days') + 1)),
+					stepUnit: 'days', weekdays: null,
+					fmt, wikiLinks, alias, prefix, postfix,
+				});
+
+				while (true) {
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state());
+					if (r === BACK) return;
+					if (r === CONFIGURE) {
+						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
+						if (res !== BACK) ({ fmt, wikiLinks, alias, prefix, postfix } = res);
+						continue;
 					}
-					return { startMoment: startMoment.clone(), nStr, stepUnit, weekdays: null, fmt, wikiLinks, alias, prefix, postfix };
-				};
-
-				outer: while (true) {
-					// step 0 — quick presets
-					if (step === 0) {
-						const r = await suggest<string>(
-							this.app,
-							'Date Range',
-							'Pick a common range, or choose Custom to set your own dates.',
-							[...rangePresets.map(p => p.label), 'Custom…'],
-							[...rangePresets.map(p => p.value), 'custom'],
-							{ ...state(), nStr: '1' },
-							(value, s) => {
-								const p = rangePresets.find(p => p.value === value);
-								if (!p) return { ...s, nStr: '1' };
-								return { ...s, startMoment: p.start.clone(), nStr: String(Math.max(1, p.end.diff(p.start, 'days') + 1)), stepUnit: 'days' };
-							},
-							undefined,
-							[...rangePresets.map(p => p.name), ''],
-						);
-						if (r === BACK) return;
-						if (r === 'custom') { fromPreset = false; step++; continue; }
-						const p = rangePresets.find(p => p.value === r)!;
-						startMoment = p.start.clone();
-						endMoment   = p.end.clone();
-						method      = 'specific-date';
-						fromPreset  = true;
-						step = 2;
-
-					// step 1 — start date + range method + end date or duration
-					} else if (step === 1) {
-						const r = await promptStartMethod(
-							this.app,
-							startInput,
-							method,
-							endInput || startMoment.clone().add(1, 'days').format('YYYY-MM-DD'),
-							nStr,
-							stepUnit,
-							state(),
-						);
-						if (r === BACK) { step--; continue; }
-						startInput  = r.startInput;
-						startMoment = r.startMoment;
-						method      = r.method;
-						endInput    = r.endInput;
-						endMoment   = r.endMoment;
-						nStr        = r.nStr;
-						stepUnit    = r.stepUnit;
-						step++;
-
-					// step 2 — use defaults or configure
-					} else if (step === 2) {
-						const mode = await suggest<string>(
-							this.app,
-							'Format',
-							'Use your saved format defaults, or configure how dates are formatted.',
-							['Use saved format', 'Configure format…'],
-							['defaults', 'configure'],
-							state(),
-							(_value, s) => s,
-						);
-						if (mode === BACK) { step = fromPreset ? 0 : 1; continue; }
-						if (mode === 'defaults') break outer;
-						step++;
-
-					// step 3 — date format
-					} else if (step === 3) {
-						const effectiveDefault = this.settings.defaultFormat || 'YYYY-MM-DD';
-						const fmtPresets: { label: string; value: string; fmt: string }[] = [
-							{ label: startMoment.format('YYYY-MM-DD'),      value: 'iso',     fmt: 'YYYY-MM-DD' },
-							{ label: startMoment.format('YYYY/MM/DD'),      value: 'folder',  fmt: 'YYYY/MM/DD' },
-							{ label: startMoment.format('MMMM Do, YYYY'),   value: 'long',    fmt: 'MMMM Do, YYYY' },
-							{ label: startMoment.format('ddd, MMM D'),      value: 'short',   fmt: 'ddd, MMM D' },
-							{ label: startMoment.format('ddd, MMM D YYYY'), value: 'shortyr', fmt: 'ddd, MMM D YYYY' },
-							{ label: startMoment.format('MM/DD/YYYY'),      value: 'us',      fmt: 'MM/DD/YYYY' },
-							{ label: startMoment.format('DD/MM/YYYY'),      value: 'eu',      fmt: 'DD/MM/YYYY' },
-						].filter(p => p.fmt !== effectiveDefault);
-						const r = await suggest<string>(
-							this.app,
-							'Date Format',
-							'Choose how each date appears. Previews use your start date.',
-							[startMoment.format(effectiveDefault), ...fmtPresets.map(p => p.label), 'Custom…'],
-							['default', ...fmtPresets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, fmt: effectiveDefault };
-								const preset = fmtPresets.find(p => p.value === value);
-								if (preset) return { ...s, fmt: preset.fmt };
-								return s;
-							},
-							undefined,
-							[(FMT_CATS[effectiveDefault] ? FMT_CATS[effectiveDefault] + ' · ' : '') + 'default', ...fmtPresets.map(p => FMT_CATS[p.fmt] ?? ''), ''],
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { fmt = effectiveDefault; step++; }
-						else if (r !== 'custom') { fmt = fmtPresets.find(p => p.value === r)!.fmt; step++; }
-						else {
-							const c = await prompt(this.app, 'Custom Format', 'Enter a format string (e.g. YYYY-MM-DD)', 'MMMM Do, YYYY', state(), (value, s) => ({ ...s, fmt: value }));
-							if (c === BACK) continue;
-							fmt = c; step++;
-						}
-
-					// step 4 — wiki links + alias
-					} else if (step === 4) {
-						const wikiDefault = this.settings.defaultWikiLinks;
-						const r = await suggest<boolean>(
-							this.app,
-							'Wiki Links',
-							'Wrap each date in [[ ]] to create Obsidian note links, or output as plain text.',
-							wikiDefault ? ['Wrap in [[wikilinks]] (default)', 'Plain text'] : ['Plain text (default)', 'Wrap in [[wikilinks]]'],
-							wikiDefault ? [true, false] : [false, true],
-							state(),
-							(value, s) => ({ ...s, wikiLinks: value, alias: value ? s.alias : '' }),
-						);
-						if (r === BACK) { step--; continue; }
-						wikiLinks = r;
-						if (!wikiLinks) { alias = ''; step++; continue; }
-
-						const defaultAliasLabel = this.settings.defaultAlias ? `${startMoment.format(this.settings.defaultAlias)} (default)` : 'None (default)';
-						const aliasPresets: { label: string; value: string; fmt: string }[] = [
-							{ label: startMoment.format('ddd, MMM D'),    value: 'short',   fmt: 'ddd, MMM D' },
-							{ label: startMoment.format('MMMM Do'),       value: 'long',    fmt: 'MMMM Do' },
-							{ label: startMoment.format('MMMM D, YYYY'),  value: 'full',    fmt: 'MMMM D, YYYY' },
-							{ label: startMoment.format('dddd'),           value: 'weekday', fmt: 'dddd' },
-							{ label: startMoment.format('dddd, MMMM Do'), value: 'daylong', fmt: 'dddd, MMMM Do' },
-						].filter(p => p.fmt !== this.settings.defaultAlias);
-						const aliasR = await suggest<string>(
-							this.app, 'Alias', 'Add a display alias to each link, e.g. [[2026-01-15|Thu, Jan 15]]. Leave as "None" to skip.',
-							[defaultAliasLabel, ...aliasPresets.map(p => p.label), 'Custom…'],
-							['default', ...aliasPresets.map(p => p.value), 'custom'],
-							{ ...state(), wikiLinks: true },
-							(value, s) => {
-								if (value === 'default') return { ...s, alias: this.settings.defaultAlias };
-								const preset = aliasPresets.find(p => p.value === value);
-								if (preset) return { ...s, alias: preset.fmt };
-								return s;
-							},
-						);
-						if (aliasR === BACK) continue;
-						if (aliasR === 'default') { alias = this.settings.defaultAlias; }
-						else if (aliasR !== 'custom') { alias = aliasPresets.find(p => p.value === aliasR)!.fmt; }
-						else {
-							const c = await prompt(this.app, 'Custom Alias', 'Enter a Moment.js format string for the alias, e.g. ddd, MMM D', '', { ...state(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
-							if (c === BACK) continue;
-							alias = c;
-						}
-						step++;
-
-					// step 5 — prefix
-					} else if (step === 5) {
-						const defaultPrefixLabel = this.settings.defaultPrefix ? `${JSON.stringify(this.settings.defaultPrefix)} (default)` : 'None (default)';
-						const prefixPresets: { label: string; value: string; str: string }[] = [
-							{ label: 'None',    value: 'none',  str: '' },
-							{ label: '- ',     value: 'dash',  str: '- ' },
-							{ label: '* ',     value: 'star',  str: '* ' },
-							{ label: '+ ',     value: 'plus',  str: '+ ' },
-							{ label: '> ',     value: 'quote', str: '> ' },
-							{ label: '- [ ] ', value: 'task',  str: '- [ ] ' },
-							{ label: '- [x] ', value: 'done',  str: '- [x] ' },
-						].filter(p => p.str !== this.settings.defaultPrefix);
-						const r = await suggest<string>(
-							this.app, 'Prefix', 'Optionally prefix each date with a list marker.',
-							[defaultPrefixLabel, ...prefixPresets.map(p => p.label), 'Custom…'],
-							['default', ...prefixPresets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, prefix: this.settings.defaultPrefix };
-								const preset = prefixPresets.find(p => p.value === value);
-								if (preset) return { ...s, prefix: preset.str };
-								return s;
-							},
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { prefix = this.settings.defaultPrefix; step++; }
-						else if (r !== 'custom') { prefix = prefixPresets.find(p => p.value === r)!.str; step++; }
-						else {
-							const c = await prompt(this.app, 'Custom Prefix', 'Enter a prefix to prepend to each date', '> ', state(), (value, s) => ({ ...s, prefix: value }));
-							if (c === BACK) continue;
-							prefix = c; step++;
-						}
-
-					// step 6 — postfix
-					} else if (step === 6) {
-						const defaultPostfixLabel = this.settings.defaultPostfix ? `${JSON.stringify(this.settings.defaultPostfix)} (default)` : 'None (default)';
-						const postfixPresets: { label: string; value: string; str: string }[] = [
-							{ label: 'None',  value: 'none',   str: '' },
-							{ label: ' - ',  value: 'dash',   str: ' - ' },
-							{ label: ' — ',  value: 'emdash', str: ' — ' },
-							{ label: ' :: ', value: 'dv',     str: ' :: ' },
-							{ label: ':',    value: 'colon',  str: ':' },
-							{ label: ' | ',  value: 'pipe',   str: ' | ' },
-						].filter(p => p.str !== this.settings.defaultPostfix);
-						const r = await suggest<string>(
-							this.app, 'Postfix', 'Optionally append text after each date.',
-							[defaultPostfixLabel, ...postfixPresets.map(p => p.label), 'Custom…'],
-							['default', ...postfixPresets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, postfix: this.settings.defaultPostfix };
-								const preset = postfixPresets.find(p => p.value === value);
-								if (preset) return { ...s, postfix: preset.str };
-								return s;
-							},
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { postfix = this.settings.defaultPostfix; }
-						else if (r !== 'custom') { postfix = postfixPresets.find(p => p.value === r)!.str; }
-						else {
-							const c = await prompt(this.app, 'Custom Postfix', 'Enter text to append after each date', ':: ', state(), (value, s) => ({ ...s, postfix: value }));
-							if (c === BACK) continue;
-							postfix = c;
-						}
-						break outer;
-					}
+					startInput  = r.startInput;
+					startMoment = r.startMoment;
+					endInput    = r.endInput;
+					endMoment   = r.endMoment;
+					break;
 				}
 
 				editor.replaceSelection(buildDates(state()).join('\n'));
@@ -859,8 +861,16 @@ export default class DateListPlugin extends Plugin {
 							dayOptions.map(d => d.days),
 							{ ...state(), nStr: '14', stepUnit: 'days' },
 							(value, s) => ({ ...s, weekdays: value }),
+							undefined,
+							undefined,
+							true,
 						);
 						if (r === BACK) return;
+						if (r === CONFIGURE) {
+							const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
+							if (res !== BACK) ({ fmt, wikiLinks, alias, prefix, postfix } = res);
+							continue;
+						}
 						selectedWeekdays = r;
 						step++;
 
@@ -877,6 +887,11 @@ export default class DateListPlugin extends Plugin {
 							state(),
 						);
 						if (r === BACK) { step--; continue; }
+						if (r === CONFIGURE) {
+							const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
+							if (res !== BACK) ({ fmt, wikiLinks, alias, prefix, postfix } = res);
+							continue;
+						}
 						rangeMethod   = r.method;
 						startInput    = r.startInput;
 						startMoment   = r.startMoment;
@@ -884,169 +899,6 @@ export default class DateListPlugin extends Plugin {
 						endMoment     = r.endMoment;
 						nStr          = r.nStr;
 						stepUnit      = r.stepUnit;
-						step = 4;
-						continue;
-
-					// step 4 — use defaults or configure
-					} else if (step === 4) {
-						const mode = await suggest<string>(
-							this.app,
-							'Format',
-							'Use your saved format defaults, or configure how dates are formatted.',
-							['Use saved format', 'Configure format…'],
-							['defaults', 'configure'],
-							state(),
-							(_value, s) => s,
-						);
-						if (mode === BACK) { step = 1; continue; }
-						if (mode === 'defaults') break outer;
-						step++;
-
-					// step 5 — date format
-					} else if (step === 5) {
-						const effectiveDefault = this.settings.defaultFormat || 'YYYY-MM-DD';
-						const refMoment = rangeMethod === 'between' ? startMoment : moment();
-						const presets: { label: string; value: string; fmt: string }[] = [
-							{ label: refMoment.format('YYYY-MM-DD'),      value: 'iso',     fmt: 'YYYY-MM-DD' },
-							{ label: refMoment.format('YYYY/MM/DD'),      value: 'folder',  fmt: 'YYYY/MM/DD' },
-							{ label: refMoment.format('MMMM Do, YYYY'),   value: 'long',    fmt: 'MMMM Do, YYYY' },
-							{ label: refMoment.format('ddd, MMM D'),      value: 'short',   fmt: 'ddd, MMM D' },
-							{ label: refMoment.format('ddd, MMM D YYYY'), value: 'shortyr', fmt: 'ddd, MMM D YYYY' },
-							{ label: refMoment.format('MM/DD/YYYY'),      value: 'us',      fmt: 'MM/DD/YYYY' },
-							{ label: refMoment.format('DD/MM/YYYY'),      value: 'eu',      fmt: 'DD/MM/YYYY' },
-						].filter(p => p.fmt !== effectiveDefault);
-						const r = await suggest<string>(
-							this.app, 'Date Format', 'Choose how each date appears.',
-							[refMoment.format(effectiveDefault), ...presets.map(p => p.label), 'Custom…'],
-							['default', ...presets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, fmt: effectiveDefault };
-								const preset = presets.find(p => p.value === value);
-								if (preset) return { ...s, fmt: preset.fmt };
-								return s;
-							},
-							undefined,
-							[(FMT_CATS[effectiveDefault] ? FMT_CATS[effectiveDefault] + ' · ' : '') + 'default', ...presets.map(p => FMT_CATS[p.fmt] ?? ''), ''],
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { fmt = effectiveDefault; step++; }
-						else if (r !== 'custom') { fmt = presets.find(p => p.value === r)!.fmt; step++; }
-						else {
-							const c = await prompt(this.app, 'Custom Format', 'Enter a Moment.js format string', 'MMMM Do, YYYY', state(), (value, s) => ({ ...s, fmt: value }));
-							if (c === BACK) continue;
-							fmt = c; step++;
-						}
-
-					// step 6 — wiki links + alias
-					} else if (step === 6) {
-						const wikiDefault = this.settings.defaultWikiLinks;
-						const refMoment = rangeMethod === 'between' ? startMoment : moment();
-						const r = await suggest<boolean>(
-							this.app, 'Wiki Links', 'Wrap each date in [[ ]] to create Obsidian note links, or output as plain text.',
-							wikiDefault ? ['Wrap in [[wikilinks]] (default)', 'Plain text'] : ['Plain text (default)', 'Wrap in [[wikilinks]]'],
-							wikiDefault ? [true, false] : [false, true],
-							state(),
-							(value, s) => ({ ...s, wikiLinks: value, alias: value ? s.alias : '' }),
-						);
-						if (r === BACK) { step--; continue; }
-						wikiLinks = r;
-						if (!wikiLinks) { alias = ''; step++; continue; }
-
-						const defaultAliasLabel = this.settings.defaultAlias ? `${refMoment.format(this.settings.defaultAlias)} (default)` : 'None (default)';
-						const aliasPresets: { label: string; value: string; fmt: string }[] = [
-							{ label: refMoment.format('ddd, MMM D'),    value: 'short',   fmt: 'ddd, MMM D' },
-							{ label: refMoment.format('MMMM Do'),       value: 'long',    fmt: 'MMMM Do' },
-							{ label: refMoment.format('MMMM D, YYYY'),  value: 'full',    fmt: 'MMMM D, YYYY' },
-							{ label: refMoment.format('dddd'),           value: 'weekday', fmt: 'dddd' },
-							{ label: refMoment.format('dddd, MMMM Do'), value: 'daylong', fmt: 'dddd, MMMM Do' },
-						].filter(p => p.fmt !== this.settings.defaultAlias);
-						const aliasR = await suggest<string>(
-							this.app, 'Alias', 'Add a display alias to each link.',
-							[defaultAliasLabel, ...aliasPresets.map(p => p.label), 'Custom…'],
-							['default', ...aliasPresets.map(p => p.value), 'custom'],
-							{ ...state(), wikiLinks: true },
-							(value, s) => {
-								if (value === 'default') return { ...s, alias: this.settings.defaultAlias };
-								const preset = aliasPresets.find(p => p.value === value);
-								if (preset) return { ...s, alias: preset.fmt };
-								return s;
-							},
-						);
-						if (aliasR === BACK) continue;
-						if (aliasR === 'default') { alias = this.settings.defaultAlias; }
-						else if (aliasR !== 'custom') { alias = aliasPresets.find(p => p.value === aliasR)!.fmt; }
-						else {
-							const c = await prompt(this.app, 'Custom Alias', 'Enter a Moment.js format string for the alias', '', { ...state(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
-							if (c === BACK) continue;
-							alias = c;
-						}
-						step++;
-
-					// step 7 — prefix
-					} else if (step === 7) {
-						const defaultPrefixLabel = this.settings.defaultPrefix ? `${JSON.stringify(this.settings.defaultPrefix)} (default)` : 'None (default)';
-						const prefixPresets: { label: string; value: string; str: string }[] = [
-							{ label: 'None',    value: 'none',  str: '' },
-							{ label: '- ',     value: 'dash',  str: '- ' },
-							{ label: '* ',     value: 'star',  str: '* ' },
-							{ label: '+ ',     value: 'plus',  str: '+ ' },
-							{ label: '> ',     value: 'quote', str: '> ' },
-							{ label: '- [ ] ', value: 'task',  str: '- [ ] ' },
-							{ label: '- [x] ', value: 'done',  str: '- [x] ' },
-						].filter(p => p.str !== this.settings.defaultPrefix);
-						const r = await suggest<string>(
-							this.app, 'Prefix', 'Optionally prefix each date with a list marker.',
-							[defaultPrefixLabel, ...prefixPresets.map(p => p.label), 'Custom…'],
-							['default', ...prefixPresets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, prefix: this.settings.defaultPrefix };
-								const preset = prefixPresets.find(p => p.value === value);
-								if (preset) return { ...s, prefix: preset.str };
-								return s;
-							},
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { prefix = this.settings.defaultPrefix; step++; }
-						else if (r !== 'custom') { prefix = prefixPresets.find(p => p.value === r)!.str; step++; }
-						else {
-							const c = await prompt(this.app, 'Custom Prefix', 'Enter a prefix to prepend to each date', '', state(), (value, s) => ({ ...s, prefix: value }));
-							if (c === BACK) continue;
-							prefix = c; step++;
-						}
-
-					// step 8 — postfix
-					} else if (step === 8) {
-						const defaultPostfixLabel = this.settings.defaultPostfix ? `${JSON.stringify(this.settings.defaultPostfix)} (default)` : 'None (default)';
-						const postfixPresets: { label: string; value: string; str: string }[] = [
-							{ label: 'None',  value: 'none',   str: '' },
-							{ label: ' - ',  value: 'dash',   str: ' - ' },
-							{ label: ' — ',  value: 'emdash', str: ' — ' },
-							{ label: ' :: ', value: 'dv',     str: ' :: ' },
-							{ label: ':',    value: 'colon',  str: ':' },
-							{ label: ' | ',  value: 'pipe',   str: ' | ' },
-						].filter(p => p.str !== this.settings.defaultPostfix);
-						const r = await suggest<string>(
-							this.app, 'Postfix', 'Optionally append text after each date.',
-							[defaultPostfixLabel, ...postfixPresets.map(p => p.label), 'Custom…'],
-							['default', ...postfixPresets.map(p => p.value), 'custom'],
-							state(),
-							(value, s) => {
-								if (value === 'default') return { ...s, postfix: this.settings.defaultPostfix };
-								const preset = postfixPresets.find(p => p.value === value);
-								if (preset) return { ...s, postfix: preset.str };
-								return s;
-							},
-						);
-						if (r === BACK) { step--; continue; }
-						if (r === 'default') { postfix = this.settings.defaultPostfix; }
-						else if (r !== 'custom') { postfix = postfixPresets.find(p => p.value === r)!.str; }
-						else {
-							const c = await prompt(this.app, 'Custom Postfix', 'Enter text to append after each date', '', state(), (value, s) => ({ ...s, postfix: value }));
-							if (c === BACK) continue;
-							postfix = c;
-						}
 						break outer;
 					}
 				}
@@ -1059,38 +911,64 @@ export default class DateListPlugin extends Plugin {
 			id: 'quick-insert',
 			name: 'Quick insert',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
-				const s = this.settings;
-				const defaultState: WizardState = {
-					startMoment: moment(),
-					nStr: s.defaultQuantity,
-					stepUnit: s.defaultStepUnit,
-					weekdays: null,
-					fmt: s.defaultFormat || 'YYYY-MM-DD',
-					wikiLinks: s.defaultWikiLinks,
-					alias: s.defaultAlias,
-					prefix: s.defaultPrefix,
-					postfix: s.defaultPostfix,
-				};
+				while (true) {
+					const s = this.settings;
+					const fmt = s.defaultFormat || 'YYYY-MM-DD';
 
-				const r = await prompt(
-					this.app,
-					'Quick insert',
-					'Enter a start date. All other options use your saved defaults.',
-					moment().format('YYYY-MM-DD'),
-					defaultState,
-					(value, state) => {
-						const m = parseDate(value);
-						return m.isValid() ? { ...state, startMoment: m } : state;
-					},
-				);
-				if (r === BACK) return;
-				const m = parseDate(r);
-				if (!m.isValid()) { new Notice('Invalid date.'); return; }
-				const dates = buildDates({ ...defaultState, startMoment: m });
-				await this.saveSettings();
-				editor.replaceSelection(dates.join('\n'));
+					const buildState = (m: MomentInstance): WizardState => ({
+						startMoment: m.clone(),
+						nStr: '1',
+						stepUnit: 'days',
+						weekdays: null,
+						fmt,
+						wikiLinks: s.defaultWikiLinks,
+						alias: s.defaultAlias,
+						prefix: s.defaultPrefix,
+						postfix: s.defaultPostfix,
+					});
+
+					const formatMoment = (m: MomentInstance): string => {
+						const formatted = m.format(fmt);
+						if (s.defaultWikiLinks) {
+							return s.defaultAlias ? `[[${formatted}|${m.format(s.defaultAlias)}]]` : `[[${formatted}]]`;
+						}
+						return formatted;
+					};
+
+					const presetDefs: { label: string; m: MomentInstance }[] = [
+						{ label: 'today',       m: moment() },
+						{ label: 'tomorrow',    m: moment().add(1, 'days') },
+						{ label: 'yesterday',   m: moment().subtract(1, 'days') },
+						{ label: 'next monday', m: parseDate('next monday') },
+						{ label: 'next week',   m: parseDate('next week') },
+						{ label: 'next month',  m: parseDate('next month') },
+					];
+					const seen = new Set<string>();
+					const presets = presetDefs
+						.filter(p => { const k = p.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); })
+						.map(p => ({ label: p.label, formatted: formatMoment(p.m), m: p.m }));
+
+					const r = await promptQuickInsert(this.app, presets, buildState(moment()), buildState);
+					if (r === BACK) return;
+					if (r === CONFIGURE) {
+						const res = await runFormatWizard(this.app, moment(), { fmt, wikiLinks: s.defaultWikiLinks, alias: s.defaultAlias, prefix: s.defaultPrefix, postfix: s.defaultPostfix }, this.settings);
+						if (res !== BACK) {
+							this.settings.defaultFormat    = res.fmt;
+							this.settings.defaultWikiLinks = res.wikiLinks;
+							this.settings.defaultAlias     = res.alias;
+							this.settings.defaultPrefix    = res.prefix;
+							this.settings.defaultPostfix   = res.postfix;
+							await this.saveSettings();
+						}
+						continue;
+					}
+					editor.replaceSelection(buildDates(buildState(r))[0] ?? '');
+					return;
+				}
 			},
 		});
+
+		this.registerEditorSuggest(new DateSuggest(this.app, this));
 	}
 
 	onunload() {}
@@ -1158,7 +1036,8 @@ class PromptModal extends Modal {
 		};
 
 		input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-		left.createEl('button', { text: 'OK' }).addEventListener('click', submit);
+		const promptActions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		promptActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
 
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
@@ -1187,9 +1066,10 @@ class SuggesterModal<T> extends Modal {
 	private values: T[];
 	private state: WizardState;
 	private previewMapper: (value: T, state: WizardState) => WizardState;
-	private resolve: (value: T | typeof BACK) => void;
+	private resolve: (value: T | typeof BACK | typeof CONFIGURE) => void;
 	private defaultValue?: T;
 	private subtexts?: string[];
+	private showConfigureBtn: boolean;
 	private confirmed = false;
 
 	constructor(
@@ -1200,9 +1080,10 @@ class SuggesterModal<T> extends Modal {
 		values: T[],
 		state: WizardState,
 		previewMapper: (value: T, state: WizardState) => WizardState,
-		resolve: (value: T | typeof BACK) => void,
+		resolve: (value: T | typeof BACK | typeof CONFIGURE) => void,
 		defaultValue?: T,
 		subtexts?: string[],
+		showConfigureBtn = false,
 	) {
 		super(app);
 		this.title = title;
@@ -1214,6 +1095,7 @@ class SuggesterModal<T> extends Modal {
 		this.resolve = resolve;
 		this.defaultValue = defaultValue;
 		this.subtexts = subtexts;
+		this.showConfigureBtn = showConfigureBtn;
 	}
 
 	onOpen() {
@@ -1276,8 +1158,170 @@ class SuggesterModal<T> extends Modal {
 			}
 		});
 
+		const suggActions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		const suggOkBtn = suggActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		suggOkBtn.addEventListener('click', () => {
+			const focused = btns.findIndex(b => b === activeDocument.activeElement);
+			select(focused >= 0 ? focused : 0);
+		});
+
+		if (this.showConfigureBtn) {
+			const configBtn = suggActions.createEl('button', { cls: 'date-list-configure-btn' });
+			setIcon(configBtn, 'settings');
+			configBtn.createEl('span', { text: 'Configure format…' });
+			configBtn.addEventListener('click', () => {
+				this.confirmed = true;
+				this.resolve(CONFIGURE);
+				this.close();
+			});
+		}
+
 		const defaultIdx = this.defaultValue !== undefined ? this.values.indexOf(this.defaultValue) : -1;
 		window.setTimeout(() => btns[defaultIdx >= 0 ? defaultIdx : 0]?.focus(), 50);
+	}
+
+	onClose() {
+		if (!this.confirmed) this.resolve(BACK);
+		this.contentEl.empty();
+	}
+}
+
+// -------------------------------------------------------------------
+// QuickInsertModal
+// -------------------------------------------------------------------
+class QuickInsertModal extends Modal {
+	private presets: { label: string; formatted: string; m: MomentInstance }[];
+	private blankState: WizardState;
+	private buildState: (m: MomentInstance) => WizardState;
+	private resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void;
+	private confirmed = false;
+
+	constructor(
+		app: App,
+		presets: { label: string; formatted: string; m: MomentInstance }[],
+		blankState: WizardState,
+		buildState: (m: MomentInstance) => WizardState,
+		resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void,
+	) {
+		super(app);
+		this.presets = presets;
+		this.blankState = blankState;
+		this.buildState = buildState;
+		this.resolve = resolve;
+	}
+
+	onOpen() {
+		this.modalEl.addClass('date-list-modal');
+		const { contentEl } = this;
+
+		this.titleEl.empty();
+		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
+		backBtn.addEventListener('click', () => this.close());
+		this.titleEl.createSpan({ text: 'Quick insert' });
+
+		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
+		const left = body.createEl('div', { cls: 'date-list-modal-left' });
+		const right = body.createEl('div', { cls: 'date-list-modal-right' });
+
+		left.createEl('p', { text: 'Pick a date or type a custom one.', cls: 'date-list-instructions' });
+
+		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
+		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
+		renderPreview(previewEl, this.blankState);
+
+		const select = (m: MomentInstance) => {
+			this.confirmed = true;
+			this.resolve(m);
+			this.close();
+		};
+
+		const btns = this.presets.map((preset, i) => {
+			const btn = left.createEl('button', { cls: 'date-list-option-btn has-subtext' });
+			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: preset.label, cls: 'date-list-option-subtext' });
+			btn.createEl('span', { text: preset.formatted, cls: 'date-list-option-text' });
+			btn.addEventListener('click', () => select(preset.m));
+			btn.addEventListener('mouseenter', () => renderPreview(previewEl, this.buildState(preset.m)));
+			btn.addEventListener('mouseleave', () => renderPreview(previewEl, this.blankState));
+			btn.addEventListener('focus',      () => renderPreview(previewEl, this.buildState(preset.m)));
+			btn.addEventListener('blur',       () => renderPreview(previewEl, this.blankState));
+			return btn;
+		});
+
+		// Inline custom input as the last "option"
+		const customRow = left.createEl('div', { cls: 'date-list-option-btn date-list-quick-custom-row' });
+		customRow.createEl('span', { text: String(this.presets.length + 1), cls: 'date-list-option-num' });
+		const customInput = customRow.createEl('input', {
+			type: 'text',
+			cls: 'date-list-quick-custom-input',
+			placeholder: 'custom date…',
+		});
+		customRow.addEventListener('click', () => customInput.focus());
+
+		const updateCustomPreview = () => {
+			const m = parseDate(customInput.value);
+			renderPreview(previewEl, m.isValid() ? this.buildState(m) : this.blankState);
+		};
+		customInput.addEventListener('input',  updateCustomPreview);
+		customInput.addEventListener('focus',  updateCustomPreview);
+		customInput.addEventListener('blur',   () => renderPreview(previewEl, this.blankState));
+		customInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				const m = parseDate(customInput.value);
+				if (!m.isValid()) { new Notice('Invalid date.'); return; }
+				select(m);
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				btns[btns.length - 1]?.focus();
+			}
+		});
+
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (activeDocument.activeElement === customInput) return;
+			const focused = btns.findIndex(b => b === activeDocument.activeElement);
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				if (focused === btns.length - 1) customInput.focus();
+				else btns[(focused + 1) % btns.length]?.focus();
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				btns[(focused - 1 + btns.length) % btns.length]?.focus();
+			} else if (e.key === 'Enter' && focused >= 0) {
+				e.preventDefault();
+				select(this.presets[focused]!.m);
+			} else {
+				const idx = parseInt(e.key) - 1;
+				if (isNaN(idx)) return;
+				e.preventDefault();
+				if (idx >= 0 && idx < this.presets.length) select(this.presets[idx]!.m);
+				else if (idx === this.presets.length) customInput.focus();
+			}
+		});
+
+		const qiActions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		const qiOkBtn = qiActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		qiOkBtn.addEventListener('click', () => {
+			const customVal = customInput.value.trim();
+			if (customVal) {
+				const m = parseDate(customVal);
+				if (!m.isValid()) { new Notice('Invalid date.'); return; }
+				select(m);
+				return;
+			}
+			const focused = btns.findIndex(b => b === activeDocument.activeElement);
+			select(focused >= 0 ? this.presets[focused]!.m : this.presets[0]!.m);
+		});
+		const qiConfigBtn = qiActions.createEl('button', { cls: 'date-list-configure-btn' });
+		setIcon(qiConfigBtn, 'settings');
+		qiConfigBtn.createEl('span', { text: 'Configure format…' });
+		qiConfigBtn.addEventListener('click', () => {
+			this.confirmed = true;
+			this.resolve(CONFIGURE);
+			this.close();
+		});
+
+		window.setTimeout(() => btns[0]?.focus(), 50);
 	}
 
 	onClose() {
@@ -1390,6 +1434,9 @@ class DurationModal extends Modal {
 			if (e.key === 'Enter') { e.preventDefault(); submit(); }
 		});
 
+		const durActions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		durActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
+
 		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
 			if (activeDocument.activeElement === input) return;
 			const focused = unitBtns.findIndex(b => b === activeDocument.activeElement);
@@ -1421,6 +1468,302 @@ class DurationModal extends Modal {
 }
 
 // -------------------------------------------------------------------
+// InsertDateModal — presets + inline custom date inputs
+// -------------------------------------------------------------------
+class InsertDateModal extends Modal {
+	private rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[];
+	private defaultStartInput: string;
+	private defaultEndInput: string;
+	private state: WizardState;
+	private resolve: (value: InsertDateResult | typeof BACK | typeof CONFIGURE) => void;
+	private confirmed = false;
+	private fpInstances: FpInstance[] = [];
+
+	constructor(
+		app: App,
+		rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[],
+		defaultStartInput: string,
+		defaultEndInput: string,
+		state: WizardState,
+		resolve: (value: InsertDateResult | typeof BACK | typeof CONFIGURE) => void,
+	) {
+		super(app);
+		this.rangePresets     = rangePresets;
+		this.defaultStartInput = defaultStartInput;
+		this.defaultEndInput   = defaultEndInput;
+		this.state             = state;
+		this.resolve           = resolve;
+	}
+
+	onOpen() {
+		this.modalEl.addClass('date-list-modal');
+		const { contentEl } = this;
+
+		this.titleEl.empty();
+		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
+		backBtn.addEventListener('click', () => this.close());
+		this.titleEl.createSpan({ text: 'Date Range' });
+
+		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
+		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
+		const right = body.createEl('div', { cls: 'date-list-modal-right' });
+
+		left.createEl('p', { text: 'Pick a common range, or choose Custom to set your own dates.', cls: 'date-list-instructions' });
+
+		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
+		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
+		renderPreview(previewEl, this.state);
+
+		let customActive = false;
+
+		const resolvePreset = (p: { start: MomentInstance; end: MomentInstance }) => {
+			this.confirmed = true;
+			this.resolve({
+				startInput: p.start.format('YYYY-MM-DD'),
+				startMoment: p.start.clone(),
+				endInput: p.end.format('YYYY-MM-DD'),
+				endMoment: p.end.clone(),
+			});
+			this.close();
+		};
+
+		// — Preset buttons —
+		const presetBtns = this.rangePresets.map((p, i) => {
+			const presetState: WizardState = {
+				...this.state,
+				startMoment: p.start.clone(),
+				nStr: String(Math.max(1, p.end.diff(p.start, 'days') + 1)),
+				stepUnit: 'days',
+			};
+			const btn = left.createEl('button', { cls: 'date-list-option-btn has-subtext' });
+			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: p.name,        cls: 'date-list-option-subtext' });
+			btn.createEl('span', { text: p.label,       cls: 'date-list-option-text' });
+			btn.addEventListener('click', () => resolvePreset(p));
+			btn.addEventListener('mouseenter', () => renderPreview(previewEl, presetState));
+			btn.addEventListener('mouseleave', () => renderPreview(previewEl, customActive ? buildCustomState() : this.state));
+			btn.addEventListener('focus', () => {
+				customActive = false;
+				customSection.style.display = 'none';
+				renderPreview(previewEl, presetState);
+			});
+			btn.addEventListener('blur', () => renderPreview(previewEl, this.state));
+			return btn;
+		});
+
+		// — Custom button (option N+1) —
+		const customBtn = left.createEl('button', { cls: 'date-list-option-btn' });
+		customBtn.createEl('span', { text: String(this.rangePresets.length + 1), cls: 'date-list-option-num' });
+		customBtn.createEl('span', { text: 'Custom…', cls: 'date-list-option-text' });
+
+		// — Custom section (hidden until activated) —
+		const customSection = left.createEl('div', { cls: 'date-list-custom-section' });
+		customSection.style.display = 'none';
+
+		type CustomMethod = 'between' | 'in-the-next' | 'in-the-past' | 'duration';
+		let customMethod: CustomMethod = 'between';
+		let customUnit = 'days';
+
+		// Method selector
+		const methodRow = customSection.createEl('div', { cls: 'date-list-duration-row date-list-method-row' });
+		const customMethodDefs: { label: string; value: CustomMethod }[] = [
+			{ label: 'Between',     value: 'between' },
+			{ label: 'In the next', value: 'in-the-next' },
+			{ label: 'In the past', value: 'in-the-past' },
+			{ label: 'Duration',    value: 'duration' },
+		];
+
+		// — Between section —
+		const betweenSection = customSection.createEl('div');
+		betweenSection.createEl('p', { text: 'Start date', cls: 'date-list-instructions' });
+		const { input: startInputEl, fp: fp1 } = createDateInputRow(betweenSection, this.defaultStartInput, 'e.g. today, 2026-06-01…');
+		this.fpInstances.push(fp1);
+		betweenSection.createEl('p', { text: 'End date', cls: 'date-list-instructions' });
+		const defaultEnd = this.defaultEndInput || moment().add(6, 'days').format('YYYY-MM-DD');
+		const { input: endInputEl, fp: fp2 } = createDateInputRow(betweenSection, defaultEnd, 'e.g. next friday, 2026-06-30…');
+		this.fpInstances.push(fp2);
+
+		// — N+Unit section (in-the-next / in-the-past / duration) —
+		const nSection = customSection.createEl('div');
+
+		// Duration start date (only for 'duration' method)
+		const durStartPart = nSection.createEl('div');
+		durStartPart.createEl('p', { text: 'Start date', cls: 'date-list-instructions' });
+		const { input: durStartEl, fp: fp3 } = createDateInputRow(durStartPart, this.defaultStartInput, 'e.g. today, 2026-06-01…');
+		this.fpInstances.push(fp3);
+
+		const nLabel = nSection.createEl('p', { text: 'Duration', cls: 'date-list-instructions' });
+		const nRow = nSection.createEl('div', { cls: 'date-list-duration-row' });
+		const nInput = nRow.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
+		nInput.value = '7';
+		const unitDefs = [
+			{ label: 'Days', value: 'days' }, { label: 'Weeks', value: 'weeks' },
+			{ label: 'Months', value: 'months' }, { label: 'Years', value: 'years' },
+		];
+		const unitBtns = unitDefs.map((u, i) => {
+			const btn = nRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
+			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: u.label, cls: 'date-list-option-text' });
+			if (u.value === customUnit) btn.addClass('is-active');
+			btn.addEventListener('click', () => {
+				customUnit = u.value;
+				unitBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				renderPreview(previewEl, buildCustomState());
+			});
+			return btn;
+		});
+
+		const buildCustomState = (): WizardState => {
+			const n = Math.max(1, parseInt(nInput.value) || 7);
+			const unit = customUnit as DurationUnit;
+			if (customMethod === 'between') {
+				const sm = parseDate(startInputEl.value);
+				const em = parseDate(endInputEl.value);
+				if (!sm.isValid()) return this.state;
+				if (!em.isValid() || !em.isAfter(sm, 'day'))
+					return { ...this.state, startMoment: sm, nStr: '1', stepUnit: 'days' };
+				return { ...this.state, startMoment: sm, nStr: String(em.diff(sm, 'days') + 1), stepUnit: 'days' };
+			}
+			if (customMethod === 'in-the-next')
+				return { ...this.state, startMoment: moment(), nStr: String(n), stepUnit: unit };
+			if (customMethod === 'in-the-past') {
+				const past = moment().subtract(n, unit);
+				return { ...this.state, startMoment: past, nStr: String(Math.max(1, moment().diff(past, 'days') + 1)), stepUnit: 'days' };
+			}
+			// duration
+			const sm = parseDate(durStartEl.value);
+			if (!sm.isValid()) return this.state;
+			return { ...this.state, startMoment: sm, nStr: String(n), stepUnit: unit };
+		};
+
+		const showCustomMethod = (m: CustomMethod) => {
+			customMethod = m;
+			betweenSection.style.display  = m === 'between' ? '' : 'none';
+			nSection.style.display        = m !== 'between' ? '' : 'none';
+			durStartPart.style.display    = m === 'duration' ? '' : 'none';
+			nLabel.textContent = m === 'in-the-next' ? 'In the next'
+				: m === 'in-the-past' ? 'In the past' : 'For';
+			renderPreview(previewEl, buildCustomState());
+		};
+		showCustomMethod('between');
+
+		// Method buttons (rendered after sections so showCustomMethod refs are valid)
+		const methodBtns = customMethodDefs.map((method) => {
+			const btn = methodRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
+			btn.createEl('span', { text: method.label, cls: 'date-list-option-text' });
+			if (method.value === 'between') btn.addClass('is-active');
+			btn.addEventListener('click', () => {
+				methodBtns.forEach(b => b.removeClass('is-active'));
+				btn.addClass('is-active');
+				showCustomMethod(method.value);
+			});
+			return btn;
+		});
+
+		const showCustom = () => {
+			customActive = true;
+			customSection.style.display = '';
+			renderPreview(previewEl, buildCustomState());
+		};
+
+		startInputEl.addEventListener('input', () => renderPreview(previewEl, buildCustomState()));
+		endInputEl.addEventListener('input',   () => renderPreview(previewEl, buildCustomState()));
+		durStartEl.addEventListener('input',   () => renderPreview(previewEl, buildCustomState()));
+		nInput.addEventListener('input',       () => renderPreview(previewEl, buildCustomState()));
+
+		customBtn.addEventListener('click', () => { showCustom(); startInputEl.focus(); });
+		customBtn.addEventListener('focus', () => showCustom());
+
+		const submitCustom = () => {
+			const n = parseInt(nInput.value);
+			if (customMethod === 'between') {
+				const sm = parseDate(startInputEl.value);
+				if (!sm.isValid()) { new Notice('Invalid start date.'); startInputEl.focus(); return; }
+				const em = parseDate(endInputEl.value);
+				if (!em.isValid()) { new Notice('Invalid end date.'); endInputEl.focus(); return; }
+				if (!em.isSameOrAfter(sm, 'day')) { new Notice('End date must be on or after start date.'); endInputEl.focus(); return; }
+				this.confirmed = true;
+				this.resolve({ startInput: startInputEl.value, startMoment: sm, endInput: endInputEl.value, endMoment: em });
+			} else if (customMethod === 'in-the-next') {
+				if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); nInput.focus(); return; }
+				const sm = moment();
+				const em = sm.clone().add(n, customUnit as DurationUnit);
+				this.confirmed = true;
+				this.resolve({ startInput: sm.format('YYYY-MM-DD'), startMoment: sm, endInput: em.format('YYYY-MM-DD'), endMoment: em });
+			} else if (customMethod === 'in-the-past') {
+				if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); nInput.focus(); return; }
+				const em = moment();
+				const sm = em.clone().subtract(n, customUnit as DurationUnit);
+				this.confirmed = true;
+				this.resolve({ startInput: sm.format('YYYY-MM-DD'), startMoment: sm, endInput: em.format('YYYY-MM-DD'), endMoment: em });
+			} else {
+				const sm = parseDate(durStartEl.value);
+				if (!sm.isValid()) { new Notice('Invalid start date.'); durStartEl.focus(); return; }
+				if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); nInput.focus(); return; }
+				const em = sm.clone().add(n, customUnit as DurationUnit);
+				this.confirmed = true;
+				this.resolve({ startInput: durStartEl.value, startMoment: sm, endInput: em.format('YYYY-MM-DD'), endMoment: em });
+			}
+			this.close();
+		};
+
+		[startInputEl, endInputEl, durStartEl, nInput].forEach(el =>
+			el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitCustom(); } }),
+		);
+
+		// — Actions row —
+		const actions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		const okBtn = actions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		okBtn.addEventListener('click', () => {
+			if (customActive) { submitCustom(); return; }
+			const fi = presetBtns.findIndex(b => b === activeDocument.activeElement);
+			resolvePreset(this.rangePresets[fi >= 0 ? fi : 0]!);
+		});
+		const configBtn = actions.createEl('button', { cls: 'date-list-configure-btn' });
+		setIcon(configBtn, 'settings');
+		configBtn.createEl('span', { text: 'Configure format…' });
+		configBtn.addEventListener('click', () => { this.confirmed = true; this.resolve(CONFIGURE); this.close(); });
+
+		// — Keyboard navigation —
+		const allBtns = [...presetBtns, customBtn];
+		const customInputs = [startInputEl, endInputEl, durStartEl, nInput];
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+			const active = activeDocument.activeElement;
+			if (customInputs.includes(active as HTMLInputElement)) return;
+			const fi = allBtns.findIndex(b => b === active);
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				if (fi === allBtns.length - 1) {
+					showCustom();
+					(customMethod === 'between' ? startInputEl : customMethod === 'duration' ? durStartEl : nInput).focus();
+				} else allBtns[(fi + 1) % allBtns.length]?.focus();
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				allBtns[(fi - 1 + allBtns.length) % allBtns.length]?.focus();
+			} else if (e.key === 'Enter' && fi >= 0 && fi < presetBtns.length) {
+				e.preventDefault();
+				resolvePreset(this.rangePresets[fi]!);
+			} else {
+				const idx = parseInt(e.key) - 1;
+				if (isNaN(idx)) return;
+				e.preventDefault();
+				if (idx >= 0 && idx < presetBtns.length) resolvePreset(this.rangePresets[idx]!);
+				else if (idx === presetBtns.length) { showCustom(); startInputEl.focus(); }
+			}
+		});
+
+		window.setTimeout(() => presetBtns[0]?.focus(), 50);
+	}
+
+	onClose() {
+		this.fpInstances.forEach(fp => fp.destroy());
+		if (!this.confirmed) this.resolve(BACK);
+		this.contentEl.empty();
+	}
+}
+
+// -------------------------------------------------------------------
 // FilterRangeModal
 // -------------------------------------------------------------------
 class FilterRangeModal extends Modal {
@@ -1431,7 +1774,7 @@ class FilterRangeModal extends Modal {
 	private defaultUnit: string;
 	private selectedWeekdays: number[];
 	private state: WizardState;
-	private resolve: (value: FilterRangeResult | typeof BACK) => void;
+	private resolve: (value: FilterRangeResult | typeof BACK | typeof CONFIGURE) => void;
 	private confirmed = false;
 	private fpInstances: FpInstance[] = [];
 
@@ -1444,7 +1787,7 @@ class FilterRangeModal extends Modal {
 		defaultUnit: string,
 		selectedWeekdays: number[],
 		state: WizardState,
-		resolve: (value: FilterRangeResult | typeof BACK) => void,
+		resolve: (value: FilterRangeResult | typeof BACK | typeof CONFIGURE) => void,
 	) {
 		super(app);
 		this.defaultMethod     = defaultMethod;
@@ -1667,6 +2010,17 @@ class FilterRangeModal extends Modal {
 			}
 		});
 
+		const frActions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		frActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
+		const frConfigBtn = frActions.createEl('button', { cls: 'date-list-configure-btn' });
+		setIcon(frConfigBtn, 'settings');
+		frConfigBtn.createEl('span', { text: 'Configure format…' });
+		frConfigBtn.addEventListener('click', () => {
+			this.confirmed = true;
+			this.resolve(CONFIGURE);
+			this.close();
+		});
+
 		updatePreview();
 		window.setTimeout(() => {
 			const defaultMethodIdx = methods.findIndex(m => m.value === this.defaultMethod);
@@ -1681,217 +2035,107 @@ class FilterRangeModal extends Modal {
 	}
 }
 
-// -------------------------------------------------------------------
-// StartMethodModal
-// -------------------------------------------------------------------
-class StartMethodModal extends Modal {
-	private defaultStartInput: string;
-	private defaultMethod: 'specific-date' | 'duration';
-	private defaultEndInput: string;
-	private defaultN: string;
-	private defaultUnit: string;
-	private state: WizardState;
-	private resolve: (value: StartMethodResult | typeof BACK) => void;
-	private confirmed = false;
-	private fpInstances: FpInstance[] = [];
 
-	constructor(
-		app: App,
-		defaultStartInput: string,
-		defaultMethod: 'specific-date' | 'duration',
-		defaultEndInput: string,
-		defaultN: string,
-		defaultUnit: string,
-		state: WizardState,
-		resolve: (value: StartMethodResult | typeof BACK) => void,
-	) {
+
+// -------------------------------------------------------------------
+// @ Date Suggest
+// -------------------------------------------------------------------
+interface DateSuggestion {
+	insert: string;
+	display: string;
+	label?: string;
+	placeholder?: true;
+}
+
+const SUGGEST_PRESETS: { label: string; fn: () => MomentInstance }[] = [
+	{ label: 'today',       fn: () => moment() },
+	{ label: 'tomorrow',    fn: () => moment().add(1, 'days') },
+	{ label: 'yesterday',   fn: () => moment().subtract(1, 'days') },
+	{ label: 'next monday', fn: () => parseDate('next monday') },
+	{ label: 'next week',   fn: () => parseDate('next week') },
+	{ label: 'next month',  fn: () => parseDate('next month') },
+];
+
+class DateSuggest extends EditorSuggest<DateSuggestion> {
+	private plugin: DateListPlugin;
+
+	constructor(app: App, plugin: DateListPlugin) {
 		super(app);
-		this.defaultStartInput = defaultStartInput;
-		this.defaultMethod     = defaultMethod;
-		this.defaultEndInput   = defaultEndInput;
-		this.defaultN          = defaultN;
-		this.defaultUnit       = defaultUnit;
-		this.state             = state;
-		this.resolve           = resolve;
+		this.plugin = plugin;
+		this.setInstructions([
+			{ command: '↵', purpose: 'insert date' },
+			{ command: 'type', purpose: 'enter any date expression' },
+		]);
 	}
 
-	onOpen() {
-		this.modalEl.addClass('date-list-modal');
-		this.modalEl.addClass('date-list-start-method-modal');
-		const { contentEl } = this;
-
-		this.titleEl.empty();
-		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
-		backBtn.addEventListener('click', () => this.close());
-		this.titleEl.createSpan({ text: 'Date Range' });
-
-		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
-		const left = body.createEl('div', { cls: 'date-list-modal-left' });
-		const right = body.createEl('div', { cls: 'date-list-modal-right' });
-
-		// — Start date —
-		left.createEl('p', { text: 'Start date', cls: 'date-list-instructions' });
-		const { input: startInput, fp: fp1 } = createDateInputRow(left, this.defaultStartInput, 'e.g. today, +7, next monday, 2026-01-15…');
-		this.fpInstances.push(fp1);
-
-		// — Method buttons —
-		const methodRow = left.createEl('div', { cls: 'date-list-duration-row' });
-		const methods: { label: string; value: 'specific-date' | 'duration' }[] = [
-			{ label: 'Specific date', value: 'specific-date' },
-			{ label: 'Duration',      value: 'duration' },
-		];
-		let selectedMethod = this.defaultMethod;
-
-		// — Specific date section —
-		const specificSection = left.createEl('div');
-		specificSection.createEl('p', { text: 'End date', cls: 'date-list-instructions' });
-		const { input: endInput, fp: fp2 } = createDateInputRow(specificSection, this.defaultEndInput, 'e.g. tomorrow, +7, next friday, 2026-12-31…');
-		this.fpInstances.push(fp2);
-
-		// — Duration section —
-		const durationSection = left.createEl('div');
-		durationSection.createEl('p', { text: 'Duration', cls: 'date-list-instructions' });
-		const durationRow = durationSection.createEl('div', { cls: 'date-list-duration-row' });
-		const nInput = durationRow.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
-		nInput.value = this.defaultN;
-		const units: { label: string; value: string }[] = [
-			{ label: 'Days',   value: 'days' },
-			{ label: 'Weeks',  value: 'weeks' },
-			{ label: 'Months', value: 'months' },
-			{ label: 'Years',  value: 'years' },
-		];
-		let selectedUnit = this.defaultUnit;
-
-		// — Preview —
-		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
-		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
-
-		const updatePreview = () => {
-			const sm = parseDate(startInput.value);
-			if (!sm.isValid()) { renderPreview(previewEl, this.state); return; }
-			if (selectedMethod === 'specific-date') {
-				const em = parseDate(endInput.value);
-				if (!em.isValid() || !em.isAfter(sm, 'day')) {
-					renderPreview(previewEl, { ...this.state, startMoment: sm, nStr: '1', stepUnit: 'days' });
-				} else {
-					renderPreview(previewEl, { ...this.state, startMoment: sm, nStr: String(em.diff(sm, 'days') + 1), stepUnit: 'days' });
-				}
-			} else {
-				const n = parseInt(nInput.value);
-				renderPreview(previewEl, { ...this.state, startMoment: sm, nStr: n > 0 ? String(n) : '1', stepUnit: selectedUnit });
-			}
-		};
-
-		// — Unit buttons —
-		const unitBtns = units.map((unit, i) => {
-			const btn = durationRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
-			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
-			btn.createEl('span', { text: unit.label, cls: 'date-list-option-text' });
-			if (unit.value === selectedUnit) btn.addClass('is-active');
-			btn.addEventListener('click', () => {
-				selectedUnit = unit.value;
-				unitBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				updatePreview();
-			});
-			btn.addEventListener('focus', () => {
-				selectedUnit = unit.value;
-				unitBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				updatePreview();
-			});
-			return btn;
-		});
-
-		const showMethod = (m: 'specific-date' | 'duration') => {
-			selectedMethod = m;
-			specificSection.style.display = m === 'specific-date' ? '' : 'none';
-			durationSection.style.display = m === 'duration'      ? '' : 'none';
-			updatePreview();
-		};
-		showMethod(selectedMethod);
-
-		// — Method buttons —
-		const methodBtns = methods.map((method, i) => {
-			const btn = methodRow.createEl('button', { cls: 'date-list-duration-unit-btn' });
-			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
-			btn.createEl('span', { text: method.label, cls: 'date-list-option-text' });
-			if (method.value === selectedMethod) btn.addClass('is-active');
-			btn.addEventListener('click', () => {
-				methodBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				showMethod(method.value);
-				window.setTimeout(() => (method.value === 'specific-date' ? endInput : nInput).focus(), 30);
-			});
-			btn.addEventListener('focus', () => {
-				methodBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				showMethod(method.value);
-			});
-			return btn;
-		});
-
-		const submit = () => {
-			const sm = parseDate(startInput.value);
-			if (!sm.isValid()) { new Notice('Invalid start date.'); startInput.focus(); return; }
-			if (selectedMethod === 'specific-date') {
-				const em = parseDate(endInput.value);
-				if (!em.isValid()) { new Notice('Invalid end date.'); endInput.focus(); return; }
-				if (!em.isSameOrAfter(sm, 'day')) { new Notice('End date must be on or after start date.'); endInput.focus(); return; }
-				this.confirmed = true;
-				this.resolve({
-					startInput: startInput.value, startMoment: sm,
-					method: 'specific-date',
-					endInput: endInput.value, endMoment: em,
-					nStr: String(Math.max(1, em.diff(sm, 'days') + 1)), stepUnit: 'days',
-				});
-			} else {
-				const n = parseInt(nInput.value);
-				if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); nInput.focus(); return; }
-				this.confirmed = true;
-				this.resolve({
-					startInput: startInput.value, startMoment: sm,
-					method: 'duration',
-					endInput: '', endMoment: sm.clone().add(n, selectedUnit as DurationUnit),
-					nStr: String(n), stepUnit: selectedUnit,
-				});
-			}
-			this.close();
-		};
-
-		startInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-		endInput.addEventListener('keydown',   (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-		nInput.addEventListener('keydown',     (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-		startInput.addEventListener('input', updatePreview);
-		endInput.addEventListener('input',   updatePreview);
-		nInput.addEventListener('input',     updatePreview);
-
-		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			const active = activeDocument.activeElement;
-			if (active === startInput || active === endInput || active === nInput) return;
-			const mIdx = methodBtns.findIndex(b => b === active);
-			const uIdx = unitBtns.findIndex(b => b === active);
-			if (mIdx >= 0) {
-				if (e.key === 'ArrowRight') { e.preventDefault(); methodBtns[(mIdx + 1) % methodBtns.length]?.focus(); }
-				else if (e.key === 'ArrowLeft') { e.preventDefault(); methodBtns[(mIdx - 1 + methodBtns.length) % methodBtns.length]?.focus(); }
-				else if (e.key === 'ArrowDown') { e.preventDefault(); (selectedMethod === 'specific-date' ? endInput : nInput).focus(); }
-				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
-				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < methodBtns.length) { e.preventDefault(); methodBtns[idx]!.focus(); } }
-			} else if (uIdx >= 0) {
-				if (e.key === 'ArrowRight') { e.preventDefault(); unitBtns[(uIdx + 1) % unitBtns.length]?.focus(); }
-				else if (e.key === 'ArrowLeft') { e.preventDefault(); unitBtns[(uIdx - 1 + unitBtns.length) % unitBtns.length]?.focus(); }
-				else if (e.key === 'ArrowUp') { e.preventDefault(); (methodBtns.find(b => b.hasClass('is-active')) ?? methodBtns[0])?.focus(); }
-				else if (e.key === 'Enter') { e.preventDefault(); submit(); }
-				else { const idx = parseInt(e.key) - 1; if (!isNaN(idx) && idx >= 0 && idx < unitBtns.length) { e.preventDefault(); unitBtns[idx]!.focus(); } }
-			}
-		});
-
-		window.setTimeout(() => { startInput.focus(); startInput.select(); }, 50);
+	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
+		const trigger = this.plugin.settings.suggestTrigger || '@';
+		const line = editor.getLine(cursor.line);
+		const before = line.slice(0, cursor.ch);
+		const triggerIdx = before.lastIndexOf(trigger);
+		if (triggerIdx === -1) return null;
+		if (triggerIdx > 0 && !/\s/.test(line[triggerIdx - 1]!)) return null;
+		const query = before.slice(triggerIdx + trigger.length);
+		if (query.length > 40) return null;
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
 	}
 
-	onClose() {
-		this.fpInstances.forEach(fp => fp.destroy());
-		if (!this.confirmed) this.resolve(BACK);
-		this.contentEl.empty();
+	getSuggestions(context: EditorSuggestContext): DateSuggestion[] {
+		const s = this.plugin.settings;
+		const fmt = s.defaultFormat || 'YYYY-MM-DD';
+		const query = context.query.trim();
+
+		const toSuggestion = (m: MomentInstance, label?: string): DateSuggestion => {
+			const formatted = m.format(fmt);
+			const insert = s.defaultWikiLinks
+				? (s.defaultAlias ? `[[${formatted}|${m.format(s.defaultAlias)}]]` : `[[${formatted}]]`)
+				: formatted;
+			return { insert, display: m.format('ddd, MMM D, YYYY'), label };
+		};
+
+		// Deduplicate presets by resolved date
+		const seen = new Set<string>();
+		const presets = SUGGEST_PRESETS
+			.map(p => ({ label: p.label, m: p.fn() }))
+			.filter(p => { const k = p.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); });
+
+		if (!query) {
+			return presets.map(p => toSuggestion(p.m, p.label));
+		}
+
+		const q = query.toLowerCase();
+		const matchingPresets = presets.filter(p => p.label.startsWith(q));
+		const parsed = parseDate(query);
+
+		if (parsed.isValid()) {
+			const parsedKey = parsed.format('YYYY-MM-DD');
+			const extras = matchingPresets.filter(p => p.m.format('YYYY-MM-DD') !== parsedKey);
+			return [toSuggestion(parsed), ...extras.map(p => toSuggestion(p.m, p.label))];
+		}
+
+		if (matchingPresets.length > 0) {
+			return matchingPresets.map(p => toSuggestion(p.m, p.label));
+		}
+
+		return [{ insert: '', display: '', placeholder: true }];
+	}
+
+	renderSuggestion(value: DateSuggestion, el: HTMLElement): void {
+		if (value.placeholder) {
+			el.createEl('span', { text: '…', cls: 'date-list-suggest-placeholder' });
+			return;
+		}
+		if (value.label) {
+			el.createEl('span', { text: value.label, cls: 'date-list-suggest-label' });
+		}
+		el.createEl('span', { text: value.insert, cls: 'date-list-suggest-insert' });
+		el.createEl('span', { text: value.display, cls: 'date-list-suggest-display' });
+	}
+
+	selectSuggestion(value: DateSuggestion, _evt: MouseEvent | KeyboardEvent): void {
+		if (value.placeholder) return;
+		const context = this.context;
+		if (!context) return;
+		context.editor.replaceRange(value.insert, context.start, context.end);
 	}
 }
