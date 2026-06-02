@@ -33,6 +33,8 @@ export class DateListSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		containerEl.createEl('h2', { text: 'Settings' });
+
 		new Setting(containerEl)
 			.setName('Inline date trigger')
 			.setDesc("Character(s) that activate the date autocomplete while typing. Don't use \"/\" if you have the Slash Commands plugin enabled.")
@@ -49,7 +51,7 @@ export class DateListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Default date format')
-			.setDesc('Format string shown as the first option in the format picker (e.g. MMMM Do, YYYY). To add normal text, wrap the word in [ ]')
+			.setDesc('Format string shown as the first option in the format picker. To add normal text, wrap the word in [ ]')
 			.addText((text) => {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
@@ -83,7 +85,7 @@ export class DateListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Default alias format')
-			.setDesc('Format for the wiki link alias (e.g. ddd, MMM D). Leave blank for no alias.')
+			.setDesc('Format for the wiki link alias. Leave blank for no alias.')
 			.addText((text) => {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const aliasPreview = text.inputEl.parentElement!.createEl('div', {
@@ -125,5 +127,64 @@ export class DateListSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		containerEl.createEl('h2', { text: 'Date Guide' });
+
+		const tokenGroups: { label: string; tokens: [string, string, string][] }[] = [
+			{
+				label: 'Year',
+				tokens: [
+					['YYYY', 'Full year', '2026'],
+					['YY', 'Short year', '26'],
+				],
+			},
+			{
+				label: 'Month',
+				tokens: [
+					['MMMM', 'Full name', 'January'],
+					['MMM', 'Short name', 'Jan'],
+					['MM', 'Padded number', '01'],
+					['M', 'Number', '1'],
+				],
+			},
+			{
+				label: 'Day',
+				tokens: [
+					['DD', 'Padded', '01'],
+					['D', 'Number', '1'],
+					['Do', 'Ordinal', '1st'],
+				],
+			},
+			{
+				label: 'Weekday',
+				tokens: [
+					['dddd', 'Full name', 'Monday'],
+					['ddd', 'Short name', 'Mon'],
+					['dd', 'Min name', 'Mo'],
+					['d', 'Number (0=Sun)', '1'],
+					['E', 'Number (1=Mon)', '1'],
+				],
+			},
+			{
+				label: 'Literal',
+				tokens: [
+					['[text]', 'Literal text', 'text'],
+				],
+			},
+		];
+
+		const grid = containerEl.createEl('div', { cls: 'date-list-settings-token-grid' });
+		for (const group of tokenGroups) {
+			const wrap = grid.createEl('div', { cls: 'date-list-settings-token-group' });
+			wrap.createEl('div', { cls: 'date-list-settings-token-label', text: group.label });
+			const table = wrap.createEl('table', { cls: 'date-list-settings-tokens' });
+			const tbody = table.createEl('tbody');
+			for (const [token, desc, example] of group.tokens) {
+				const tr = tbody.createEl('tr');
+				tr.createEl('td').createEl('code', { text: token });
+				tr.createEl('td', { text: desc });
+				tr.createEl('td', { text: example });
+			}
+		}
 	}
 }
