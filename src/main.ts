@@ -375,7 +375,7 @@ async function runFormatWizard(
 			if (aliasR === 'default') { alias = settings.defaultAlias; }
 			else if (aliasR !== 'custom') { alias = aliasPresets.find(p => p.value === aliasR)!.fmt; }
 			else {
-				const c = await prompt(app, 'Custom Alias', 'Enter a Moment.js format string for the alias, e.g. ddd, MMM D', '', { ...makeState(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
+				const c = await prompt(app, 'Custom Alias', 'Enter a format string for the alias, e.g. ddd, MMM D', '', { ...makeState(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
 				if (c === BACK) continue;
 				alias = c;
 			}
@@ -704,7 +704,7 @@ export default class DateListPlugin extends Plugin {
 		// ---------------------------------------------------------------
 		this.addCommand({
 			id: 'insert',
-			name: 'Insert date list',
+			name: 'Insert list',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let startInput = moment().format('YYYY-MM-DD');
 				let endInput   = '';
@@ -1399,7 +1399,7 @@ class InsertDateModal extends Modal {
 		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
 		const right = body.createEl('div', { cls: 'date-list-modal-right' });
 
-		left.createEl('p', { text: 'Pick a common range, or choose Custom to set your own dates.', cls: 'date-list-instructions' });
+		left.createEl('p', { text: 'Pick a common range, or choose "Custom" to set your own dates.', cls: 'date-list-instructions' });
 
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
@@ -1435,7 +1435,7 @@ class InsertDateModal extends Modal {
 			btn.addEventListener('mouseleave', () => renderPreview(previewEl, customActive ? buildCustomState() : this.state));
 			btn.addEventListener('focus', () => {
 				customActive = false;
-				customSection.style.display = 'none';
+				customSection.classList.add('date-list-hidden');
 				renderPreview(previewEl, presetState);
 			});
 			btn.addEventListener('blur', () => renderPreview(previewEl, this.state));
@@ -1448,8 +1448,7 @@ class InsertDateModal extends Modal {
 		customBtn.createEl('span', { text: 'Custom…', cls: 'date-list-option-text' });
 
 		// — Custom section (hidden until activated) —
-		const customSection = left.createEl('div', { cls: 'date-list-custom-section' });
-		customSection.style.display = 'none';
+		const customSection = left.createEl('div', { cls: 'date-list-custom-section date-list-hidden' });
 
 		type CustomMethod = 'between' | 'in-the-next' | 'in-the-past' | 'duration';
 		let customMethod: CustomMethod = 'between';
@@ -1530,9 +1529,9 @@ class InsertDateModal extends Modal {
 
 		const showCustomMethod = (m: CustomMethod) => {
 			customMethod = m;
-			betweenSection.style.display  = m === 'between' ? '' : 'none';
-			nSection.style.display        = m !== 'between' ? '' : 'none';
-			durStartPart.style.display    = m === 'duration' ? '' : 'none';
+			betweenSection.classList.toggle('date-list-hidden', m !== 'between');
+			nSection.classList.toggle('date-list-hidden', m === 'between');
+			durStartPart.classList.toggle('date-list-hidden', m !== 'duration');
 			nLabel.textContent = m === 'in-the-next' ? 'In the next'
 				: m === 'in-the-past' ? 'In the past' : 'For';
 			renderPreview(previewEl, buildCustomState());
@@ -1554,7 +1553,7 @@ class InsertDateModal extends Modal {
 
 		const showCustom = () => {
 			customActive = true;
-			customSection.style.display = '';
+			customSection.classList.remove('date-list-hidden');
 			renderPreview(previewEl, buildCustomState());
 		};
 
@@ -1744,7 +1743,7 @@ class FilterRangeModal extends Modal {
 		countSection.createEl('p', { text: 'Count', cls: 'date-list-instructions' });
 		const countInput = countSection.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
 		countInput.value = this.defaultN;
-		countInput.placeholder = 'e.g. 7';
+		countInput.placeholder = 'E.g. 7';
 
 		// — Preview —
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
@@ -1797,9 +1796,9 @@ class FilterRangeModal extends Modal {
 
 		const showMethod = (m: typeof selectedMethod) => {
 			selectedMethod = m;
-			betweenSection.style.display  = m === 'between'                                  ? '' : 'none';
-			durationSection.style.display = m === 'in-the-next' || m === 'in-the-past'    ? '' : 'none';
-			countSection.style.display    = m === 'next-n'                                   ? '' : 'none';
+			betweenSection.classList.toggle('date-list-hidden', m !== 'between');
+			durationSection.classList.toggle('date-list-hidden', m !== 'in-the-next' && m !== 'in-the-past');
+			countSection.classList.toggle('date-list-hidden', m !== 'next-n');
 			updatePreview();
 		};
 		showMethod(selectedMethod);
