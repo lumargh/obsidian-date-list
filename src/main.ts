@@ -1,7 +1,6 @@
 // todo
-// - new feature: autosuggest: populate the next 10 dates that match what the user has already entered. e.g. if today is june 1: @jun shows june 1-10. @next shows @next next mon-sun & next week, next month, etc.
-// - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: 
-
+// - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
+// refactor the quick insert command so that the user immediately is on a text entry field that operates the same way as the @ quick insert. the user will also have the configure button available. 
 import {
 	App,
 	Editor,
@@ -1941,12 +1940,9 @@ interface DateSuggestion {
 }
 
 const SUGGEST_PRESETS: { label: string; fn: () => MomentInstance }[] = [
-	{ label: 'today',       fn: () => moment() },
-	{ label: 'tomorrow',    fn: () => moment().add(1, 'days') },
-	{ label: 'yesterday',   fn: () => moment().subtract(1, 'days') },
-	{ label: 'next monday', fn: () => parseDate('next monday') },
-	{ label: 'next week',   fn: () => parseDate('next week') },
-	{ label: 'next month',  fn: () => parseDate('next month') },
+	{ label: 'today',     fn: () => moment() },
+	{ label: 'tomorrow',  fn: () => moment().add(1, 'days') },
+	{ label: 'yesterday', fn: () => moment().subtract(1, 'days') },
 ];
 
 class DateSuggest extends EditorSuggest<DateSuggestion> {
@@ -1992,32 +1988,147 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 			return { insert, display: m.format('ddd, MMM D, YYYY'), label };
 		};
 
-		// Deduplicate presets by resolved date
-		const seen = new Set<string>();
-		const presets = SUGGEST_PRESETS
-			.map(p => ({ label: p.label, m: p.fn() }))
-			.filter(p => { const k = p.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); });
+		const presets = SUGGEST_PRESETS.map(p => ({ label: p.label, m: p.fn() }));
 
-		if (!query) {
-			return presets.map(p => toSuggestion(p.m, p.label));
-		}
+		// Empty query — show the 3 base presets; Tab accepts today (first item).
+		if (!query) return presets.map(p => toSuggestion(p.m, p.label));
 
 		const q = query.toLowerCase();
-		const matchingPresets = presets.filter(p => p.label.startsWith(q));
-		const parsed = parseDate(query);
+		const seen = new Set<string>();
+		const today = moment().startOf('day');
 
-		if (parsed.isValid()) {
-			const parsedKey = parsed.format('YYYY-MM-DD');
-			const extras = matchingPresets.filter(p => p.m.format('YYYY-MM-DD') !== parsedKey);
-			return [toSuggestion(parsed), ...extras.map(p => toSuggestion(p.m, p.label))];
+		// Phase 2 — letter prefix: matching presets + weekday recurrences.
+		// e.g. @t → today, tomorrow, tuesday, thursday occurrences (chronological, deduped, cap 7)
+		{
+			const results: DateSuggestion[] = [];
+
+			for (const p of presets) {
+				if (p.label.startsWith(q)) {
+					const k = p.m.format('YYYY-MM-DD');
+					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(p.m, p.label)); }
+				}
+			}
+
+			const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+			const matchingWeekdays = WEEKDAY_NAMES
+				.map((name, idx) => ({ name, idx }))
+				.filter(w => w.name.startsWith(q));
+
+			if (matchingWeekdays.length > 0) {
+				const candidates: { m: MomentInstance; label: string }[] = [];
+				for (const wd of matchingWeekdays) {
+					const cursor = today.clone();
+					let count = 0;
+					while (count < 7) {
+						if (cursor.day() === wd.idx) { candidates.push({ m: cursor.clone(), label: wd.name }); count++; }
+						cursor.add(1, 'days');
+					}
+				}
+				candidates.sort((a, b) => a.m.valueOf() - b.m.valueOf());
+				for (const c of candidates) {
+					if (results.length >= 7) break;
+					const k = c.m.format('YYYY-MM-DD');
+					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(c.m, c.label)); }
+				}
+			}
+
+			if (results.length > 0) return results;
 		}
 
-		if (matchingPresets.length > 0) {
-			return matchingPresets.map(p => toSuggestion(p.m, p.label));
+		// Phase 3 — month prefix: 7-date window in the nearest matching month.
+		// @jun → Jun 2–8 (current month from today); @jul → Jul 1–7; @june9 → Jun 9–15.
+		// Ambiguous prefix (@j, @ju) resolves to the nearest upcoming month.
+		{
+			const monthMatch = q.match(/^([a-z]+)(\d*)$/);
+			if (monthMatch) {
+				const monthPrefix = monthMatch[1]!;
+				const dayStr = monthMatch[2]!;
+				const monthNames = moment.months().map((n) => n.toLowerCase());
+				const candidates = monthNames
+					.map((name, idx) => ({ name, idx }))
+					.filter((m) => m.name.startsWith(monthPrefix));
+
+				if (candidates.length > 0) {
+					const upcoming = candidates.map(({ idx }) => {
+						let start = today.clone().month(idx).date(1).startOf('day');
+						if (idx === today.month()) start = today.clone();
+						else if (start.isBefore(today)) start = start.clone().add(1, 'years');
+						return { idx, start };
+					});
+					upcoming.sort((a, b) => a.start.valueOf() - b.start.valueOf());
+					const { idx: chosenIdx, start } = upcoming[0]!;
+
+					let windowStart = start.clone();
+					if (dayStr) {
+						const dayNum = parseInt(dayStr);
+						const shifted = today.clone().month(chosenIdx).date(dayNum).startOf('day');
+						if (shifted.isValid() && shifted.month() === chosenIdx)
+							windowStart = shifted.isBefore(today) ? today.clone() : shifted;
+					}
+
+					const results: DateSuggestion[] = [];
+					const cursor = windowStart.clone();
+					while (results.length < 7) {
+						const k = cursor.format('YYYY-MM-DD');
+						if (!seen.has(k)) {
+							seen.add(k);
+							results.push(toSuggestion(cursor.clone()));
+						}
+						cursor.add(1, 'days');
+					}
+					if (results.length > 0) return results;
+				}
+			}
 		}
 
-		// Nothing matched yet — keep the popup open by showing all presets so the
-		// user can keep typing until their input resolves to a valid date.
+		// Phase 4 — @this / @next / @last
+		// @this → remaining days of current week (from today), padded with 'this week'/'this month' if < 7
+		// @next → all 7 days of next week; @next mo → next monday + next month
+		// @last → all 7 days of last week (previous Mon–Sun, always past)
+		// Filters to entries whose label starts with the query as user types.
+		{
+			const keyword = q.split(' ')[0]!; // 'this' | 'next' | 'last'
+			if (keyword === 'this' || keyword === 'next' || keyword === 'last') {
+				const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+				const entries: { label: string; m: MomentInstance }[] = [];
+
+				if (keyword === 'this') {
+					// Remaining days of the current isoWeek starting from today (Mon=0…Sun=6)
+					const weekStart = today.clone().startOf('isoWeek');
+					for (let i = 0; i < 7; i++) {
+						const m = weekStart.clone().add(i, 'days');
+						if (!m.isBefore(today)) entries.push({ label: `this ${DAYS[i]}`, m });
+					}
+					// Pad with named periods if fewer than 7 weekdays remain
+					if (entries.length < 7) {
+						entries.push({ label: 'this week',  m: today.clone().startOf('isoWeek') });
+						entries.push({ label: 'this month', m: today.clone().startOf('month') });
+					}
+				} else if (keyword === 'next') {
+					for (const day of DAYS) entries.push({ label: `next ${day}`, m: parseDate(`next ${day}`) });
+					entries.push({ label: 'next week',  m: parseDate('next week') });
+					entries.push({ label: 'next month', m: parseDate('next month') });
+				} else {
+					// last — full previous Mon–Sun block
+					const lastMonday = today.clone().subtract(1, 'weeks').startOf('isoWeek');
+					for (let i = 0; i < 7; i++) entries.push({ label: `last ${DAYS[i]}`, m: lastMonday.clone().add(i, 'days') });
+					entries.push({ label: 'last week',  m: lastMonday.clone() });
+					entries.push({ label: 'last month', m: today.clone().subtract(1, 'months').startOf('month') });
+				}
+
+				const results = entries
+					.filter(e => e.label.startsWith(q))
+					.filter(e => { const k = e.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); })
+					.map(e => toSuggestion(e.m, e.label));
+
+				if (results.length > 0) return results;
+			}
+		}
+
+		// Future phases slot in here.
+
+		// Fallback: keep popup open while user keeps typing.
 		return presets.map(p => toSuggestion(p.m, p.label));
 	}
 
