@@ -109,6 +109,10 @@
 	outline: none;
 }
 
+.date-list-option-btn:focus .date-list-option-text {
+	color: var(--text-on-accent);
+}
+
 .date-list-option-btn:focus .date-list-option-subtext,
 .date-list-option-btn:focus .date-list-option-num {
 	color: var(--text-on-accent);

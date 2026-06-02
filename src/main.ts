@@ -1,6 +1,8 @@
 // todo
+// - add @@ for quick insert list (similar to @ for single day)
+// - update instructions on popdown @ modal: **type** enter a date expression | enter/tab (symbols) insert date | arrow (symbols) navigate to a date
+// - refactor the quick insert command so that the user immediately is on a text entry field that operates the same way as the @ quick insert. the user will also have the configure button available. 
 // - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
-// refactor the quick insert command so that the user immediately is on a text entry field that operates the same way as the @ quick insert. the user will also have the configure button available. 
 import {
 	App,
 	Editor,
@@ -2126,7 +2128,147 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 			}
 		}
 
-		// Future phases slot in here.
+		// Phase 5 — numeric date entry in multiple formats.
+		{
+			// Helper: build a 7-day window from a start moment
+			const windowFrom = (start: MomentInstance): DateSuggestion[] => {
+				const results: DateSuggestion[] = [];
+				const cursor = start.clone();
+				while (results.length < 7) {
+					const k = cursor.format('YYYY-MM-DD');
+					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
+					cursor.add(1, 'days');
+				}
+				return results;
+			};
+
+			// 5a — compact YYYYMMDD (e.g. 20260602)
+			if (/^\d{8}$/.test(q)) {
+				const yr = parseInt(q.slice(0, 4));
+				const mo = parseInt(q.slice(4, 6)) - 1;
+				const dy = parseInt(q.slice(6, 8));
+				const m  = today.clone().year(yr).month(mo).date(dy).startOf('day');
+				if (m.isValid() && m.month() === mo) {
+					const results = windowFrom(m);
+					if (results.length > 0) return results;
+				}
+			}
+
+			// 5b — slash-separated: A/B[/Y] shown as US (M/D) and EU (D/M) labeled options
+			const slashMatch = q.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+			if (slashMatch) {
+				const a    = parseInt(slashMatch[1]!);
+				const b    = parseInt(slashMatch[2]!);
+				const yStr = slashMatch[3];
+				const yr   = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
+
+				const tryDate = (month: number, day: number): MomentInstance | null => {
+					if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+					const m = today.clone().year(yr).month(month - 1).date(day).startOf('day');
+					return m.isValid() && m.month() === month - 1 ? m : null;
+				};
+
+				const usDate = tryDate(a, b);
+				const euDate = tryDate(b, a);
+				const usKey  = usDate?.format('YYYY-MM-DD');
+				const euKey  = euDate?.format('YYYY-MM-DD');
+				const results: DateSuggestion[] = [];
+				if (usDate && !seen.has(usKey!)) { seen.add(usKey!); results.push(toSuggestion(usDate, 'US')); }
+				if (euDate && euKey !== usKey && !seen.has(euKey!)) { seen.add(euKey!); results.push(toSuggestion(euDate, 'EU')); }
+				if (results.length > 0) return results;
+			}
+
+			// 5c — dash-separated ISO or partial year: @2, @2026, @2026-06, @2026-06-15
+			const isoMatch = q.match(/^(\d{1,4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/);
+			if (isoMatch) {
+				const yearStr  = isoMatch[1]!;
+				const monthStr = isoMatch[2];
+				const dayStr   = isoMatch[3];
+				const monthNum = monthStr !== undefined ? parseInt(monthStr) : null;
+				const dayNum   = dayStr   !== undefined ? parseInt(dayStr)   : null;
+				const monthOk  = monthNum === null || (monthNum >= 1 && monthNum <= 12);
+				const dayOk    = dayNum   === null || (dayNum   >= 1 && dayNum   <= 31);
+
+				if (monthOk && dayOk) {
+					const fullYear = yearStr.length === 4 ? parseInt(yearStr) : null;
+					const monthIdx = monthNum !== null ? monthNum - 1 : null;
+
+					let windowStart: MomentInstance;
+					if (fullYear !== null && monthIdx !== null && dayNum !== null) {
+						windowStart = today.clone().year(fullYear).month(monthIdx).date(dayNum).startOf('day');
+					} else if (fullYear !== null && monthIdx !== null) {
+						const isCurrent = fullYear === today.year() && monthIdx === today.month();
+						windowStart = isCurrent
+							? today.clone()
+							: today.clone().year(fullYear).month(monthIdx).date(1).startOf('day');
+					} else if (fullYear !== null) {
+						windowStart = fullYear === today.year()
+							? today.clone()
+							: today.clone().year(fullYear).month(0).date(1).startOf('day');
+					} else {
+						windowStart = today.clone(); // partial year — show today's window
+					}
+
+					if (windowStart.isValid()) {
+						const results = windowFrom(windowStart);
+						if (results.length > 0) return results;
+					}
+				}
+			}
+
+			// 5d — military format: D MMM [YYYY] (e.g. 2 JUN 2026, 02 jun, 15 march)
+			const milMatch = q.match(/^(\d{1,2})\s+([a-z]{3,9})(?:\s+(\d{2,4}))?$/);
+			if (milMatch) {
+				const day    = parseInt(milMatch[1]!);
+				const monStr = milMatch[2]!;
+				const yStr   = milMatch[3];
+				const yr     = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
+
+				const monthNames = moment.months().map(n => n.toLowerCase());
+				const monthAbbs  = moment.monthsShort().map(n => n.toLowerCase());
+				let monthIdx = monthNames.indexOf(monStr);
+				if (monthIdx === -1) monthIdx = monthAbbs.indexOf(monStr);
+
+				if (monthIdx !== -1 && day >= 1 && day <= 31) {
+					const m = today.clone().year(yr).month(monthIdx).date(day).startOf('day');
+					if (m.isValid() && m.month() === monthIdx) {
+						const results = windowFrom(m);
+						if (results.length > 0) return results;
+					}
+				}
+			}
+		}
+
+		// Phase 6 — date math: @+N or @-N, optionally suffixed with d/w/m/y or full words.
+		// @+7 → all four unit options; @+7d / @+7 d / @+7 day / @+7 days → just days.
+		// @-N mirrors the same pattern into the past.
+		{
+			const mathMatch = q.match(/^([+-])(\d+)\s*([a-z]*)$/);
+			if (mathMatch) {
+				const sign    = mathMatch[1] === '+' ? 1 : -1;
+				const n       = parseInt(mathMatch[2]!);
+				const rawUnit = mathMatch[3]!.toLowerCase();
+
+				type Unit = { key: 'days' | 'weeks' | 'months' | 'years'; suffix: string; label: string };
+				const ALL_UNITS: Unit[] = [
+					{ key: 'days',   suffix: 'd', label: 'days'   },
+					{ key: 'weeks',  suffix: 'w', label: 'weeks'  },
+					{ key: 'months', suffix: 'm', label: 'months' },
+					{ key: 'years',  suffix: 'y', label: 'years'  },
+				];
+
+				// Match by prefix of the full unit word (e.g. 'da' → days, 'wee' → weeks)
+				// or by single-char suffix. Unknown input → empty → falls through.
+				const units = rawUnit
+					? ALL_UNITS.filter(u => u.key.startsWith(rawUnit) || u.suffix === rawUnit)
+					: ALL_UNITS;
+				const results = units.map(u => {
+					const m = today.clone().add(sign * n, u.key);
+					return toSuggestion(m, `${sign > 0 ? '+' : '-'}${n} ${u.label}`);
+				});
+				if (results.length > 0) return results;
+			}
+		}
 
 		// Fallback: keep popup open while user keeps typing.
 		return presets.map(p => toSuggestion(p.m, p.label));
