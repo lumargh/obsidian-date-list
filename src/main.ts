@@ -120,24 +120,22 @@ function createDateInputRow(
 				hideCal();
 			}
 		},
-	}) as FpInstance;
+	});
 
 	const cal = fp.calendarContainer;
-	cal.classList.add('date-list-cal-floating');
-	document.body.appendChild(cal);
+	cal.classList.add('date-list-cal-floating', 'date-list-cal-hidden');
+	activeDocument.body.appendChild(cal);
 	fpAnchor.remove();
-	cal.style.display = 'none';
 
 	const hideCal = () => {
-		cal.style.display = 'none';
+		cal.classList.add('date-list-cal-hidden');
 		calBtn.classList.remove('is-active');
-		document.removeEventListener('mousedown', handleOutside, true);
+		activeDocument.removeEventListener('mousedown', handleOutside, true);
 	};
 
 	const handleOutside = (e: MouseEvent) => {
-		// Self-clean if the calendar was destroyed while listener was registered
-		if (!document.body.contains(cal)) {
-			document.removeEventListener('mousedown', handleOutside, true);
+		if (!activeDocument.body.contains(cal)) {
+			activeDocument.removeEventListener('mousedown', handleOutside, true);
 			return;
 		}
 		if (!cal.contains(e.target as Node) && !calBtn.contains(e.target as Node)) {
@@ -148,7 +146,7 @@ function createDateInputRow(
 	calBtn.addEventListener('click', (e) => {
 		e.preventDefault();
 		e.stopPropagation();
-		if (cal.style.display !== 'none') {
+		if (!cal.classList.contains('date-list-cal-hidden')) {
 			hideCal();
 		} else {
 			const m = parseDate(input.value);
@@ -156,10 +154,9 @@ function createDateInputRow(
 			const rect = calBtn.getBoundingClientRect();
 			cal.style.top = `${rect.bottom + 4}px`;
 			cal.style.left = `${rect.left}px`;
-			cal.style.display = '';
+			cal.classList.remove('date-list-cal-hidden');
 			calBtn.classList.add('is-active');
-			// Defer listener so this click doesn't immediately trigger it
-			window.setTimeout(() => document.addEventListener('mousedown', handleOutside, true), 0);
+			window.setTimeout(() => activeDocument.addEventListener('mousedown', handleOutside, true), 0);
 		}
 	});
 
@@ -228,16 +225,12 @@ function parseDate(input: string) {
 	}
 
 	// in N days/weeks/months/years
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const inN = s.match(/^in (\d+) (days?|weeks?|months?|years?)$/);
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	if (inN) return moment().add(parseInt(inN[1]!), inN[2]! as any);
+	const inN = s.match(/^in (\d+) (days|weeks|months|years)$/);
+	if (inN) return moment().add(parseInt(inN[1]!), inN[2]! as DurationUnit);
 
 	// N days/weeks/months/years ago
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const nAgo = s.match(/^(\d+) (days?|weeks?|months?|years?) ago$/);
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	if (nAgo) return moment().subtract(parseInt(nAgo[1]!), nAgo[2]! as any);
+	const nAgo = s.match(/^(\d+) (days|weeks|months|years) ago$/);
+	if (nAgo) return moment().subtract(parseInt(nAgo[1]!), nAgo[2]! as DurationUnit);
 
 	return moment(input, [
 		'YYYY-MM-DD',
@@ -474,22 +467,6 @@ function promptInsertDate(
 	);
 }
 
-interface DurationResult { nStr: string; stepUnit: string }
-
-function promptDuration(
-	app: App,
-	title: string,
-	instructions: string,
-	defaultN: string,
-	defaultUnit: string,
-	state: WizardState,
-	previewMapper: (nStr: string, stepUnit: string, state: WizardState) => WizardState,
-): Promise<DurationResult | typeof BACK> {
-	return new Promise((resolve) =>
-		new DurationModal(app, title, instructions, defaultN, defaultUnit, state, previewMapper, resolve).open(),
-	);
-}
-
 interface FilterRangeResult {
 	method: 'between' | 'in-the-next' | 'in-the-past' | 'next-n';
 	startInput: string;
@@ -530,7 +507,7 @@ export default class DateListPlugin extends Plugin {
 		// ---------------------------------------------------------------
 		this.addCommand({
 			id: 'configure',
-			name: 'Configure Date List',
+			name: 'Configure date list',
 			callback: async () => {
 				let step = 0;
 
@@ -726,8 +703,8 @@ export default class DateListPlugin extends Plugin {
 		// Insert Date List — unified inserter (end-date or duration)
 		// ---------------------------------------------------------------
 		this.addCommand({
-			id: 'date-list',
-			name: 'Insert Date List',
+			id: 'insert',
+			name: 'Insert date list',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let startInput = moment().format('YYYY-MM-DD');
 				let endInput   = '';
@@ -853,14 +830,19 @@ export default class DateListPlugin extends Plugin {
 							{ label: 'Weekdays (Mon–Fri)', days: [1, 2, 3, 4, 5] },
 							{ label: 'Weekends (Sat–Sun)', days: [6, 0] },
 						];
+						const next5State = (days: number[], s: WizardState): WizardState => {
+							const end = nthWeekdayOccurrence(s.startMoment, days, 5);
+							return { ...s, stepUnit: 'days', weekdays: days, nStr: String(end.diff(s.startMoment, 'days') + 1) };
+						};
+						const dayBase = { ...state(), stepUnit: 'days' };
 						const r = await suggest<number[]>(
 							this.app,
 							'Day of Week',
 							'Which days should be included in the list?',
 							dayOptions.map(d => d.label),
 							dayOptions.map(d => d.days),
-							{ ...state(), nStr: '14', stepUnit: 'days' },
-							(value, s) => ({ ...s, weekdays: value }),
+							next5State(dayOptions[0]!.days, dayBase),
+							(value, s) => next5State(value, s),
 							undefined,
 							undefined,
 							true,
@@ -1195,6 +1177,7 @@ class QuickInsertModal extends Modal {
 	private buildState: (m: MomentInstance) => WizardState;
 	private resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void;
 	private confirmed = false;
+	private fpInstances: FpInstance[] = [];
 
 	constructor(
 		app: App,
@@ -1256,6 +1239,50 @@ class QuickInsertModal extends Modal {
 			cls: 'date-list-quick-custom-input',
 			placeholder: 'custom date…',
 		});
+
+		const calBtn = customRow.createEl('button', { cls: 'date-list-calendar-btn', attr: { type: 'button' } });
+		setIcon(calBtn, 'calendar');
+		const fpAnchor = customRow.createEl('div');
+		const fp = flatpickr(fpAnchor, {
+			inline: true,
+			dateFormat: 'Y-m-d',
+			disableMobile: true,
+			onChange: (_dates: Date[], dateStr: string) => {
+				if (dateStr) {
+					customInput.value = dateStr;
+					customInput.dispatchEvent(new Event('input'));
+					hideCal();
+				}
+			},
+		});
+		this.fpInstances.push(fp);
+		const cal = fp.calendarContainer;
+		cal.classList.add('date-list-cal-floating', 'date-list-cal-hidden');
+		activeDocument.body.appendChild(cal);
+		fpAnchor.remove();
+		const hideCal = () => {
+			cal.classList.add('date-list-cal-hidden');
+			calBtn.classList.remove('is-active');
+			activeDocument.removeEventListener('mousedown', handleOutside, true);
+		};
+		const handleOutside = (e: MouseEvent) => {
+			if (!activeDocument.body.contains(cal)) { activeDocument.removeEventListener('mousedown', handleOutside, true); return; }
+			if (!cal.contains(e.target as Node) && !calBtn.contains(e.target as Node)) hideCal();
+		};
+		calBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (!cal.classList.contains('date-list-cal-hidden')) { hideCal(); return; }
+			const m = parseDate(customInput.value);
+			if (m.isValid()) fp.setDate(m.toDate(), false);
+			const rect = calBtn.getBoundingClientRect();
+			cal.style.top = `${rect.bottom + 4}px`;
+			cal.style.left = `${rect.left}px`;
+			cal.classList.remove('date-list-cal-hidden');
+			calBtn.classList.add('is-active');
+			window.setTimeout(() => activeDocument.addEventListener('mousedown', handleOutside, true), 0);
+		});
+
 		customRow.addEventListener('click', () => customInput.focus());
 
 		const updateCustomPreview = () => {
@@ -1325,143 +1352,7 @@ class QuickInsertModal extends Modal {
 	}
 
 	onClose() {
-		if (!this.confirmed) this.resolve(BACK);
-		this.contentEl.empty();
-	}
-}
-
-// -------------------------------------------------------------------
-// DurationModal
-// -------------------------------------------------------------------
-class DurationModal extends Modal {
-	private title: string;
-	private instructions: string;
-	private defaultN: string;
-	private defaultUnit: string;
-	private state: WizardState;
-	private previewMapper: (nStr: string, stepUnit: string, state: WizardState) => WizardState;
-	private resolve: (value: DurationResult | typeof BACK) => void;
-	private confirmed = false;
-
-	constructor(
-		app: App,
-		title: string,
-		instructions: string,
-		defaultN: string,
-		defaultUnit: string,
-		state: WizardState,
-		previewMapper: (nStr: string, stepUnit: string, state: WizardState) => WizardState,
-		resolve: (value: DurationResult | typeof BACK) => void,
-	) {
-		super(app);
-		this.title         = title;
-		this.instructions  = instructions;
-		this.defaultN      = defaultN;
-		this.defaultUnit   = defaultUnit;
-		this.state         = state;
-		this.previewMapper = previewMapper;
-		this.resolve       = resolve;
-	}
-
-	onOpen() {
-		this.modalEl.addClass('date-list-modal');
-		this.modalEl.addClass('date-list-duration-modal');
-		const { contentEl } = this;
-
-		this.titleEl.empty();
-		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
-		backBtn.addEventListener('click', () => this.close());
-		this.titleEl.createSpan({ text: this.title });
-
-		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
-		const left = body.createEl('div', { cls: 'date-list-modal-left' });
-		const right = body.createEl('div', { cls: 'date-list-modal-right' });
-
-		left.createEl('p', { text: this.instructions, cls: 'date-list-instructions' });
-
-		const row = left.createEl('div', { cls: 'date-list-duration-row' });
-		const input = row.createEl('input', { type: 'text', cls: 'date-list-duration-input' });
-		input.value = this.defaultN;
-
-		const units: { label: string; value: string }[] = [
-			{ label: 'Days',   value: 'days' },
-			{ label: 'Weeks',  value: 'weeks' },
-			{ label: 'Months', value: 'months' },
-			{ label: 'Years',  value: 'years' },
-		];
-
-		let selectedUnit = this.defaultUnit;
-
-		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
-		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
-
-		const updatePreview = () =>
-			renderPreview(previewEl, this.previewMapper(input.value, selectedUnit, this.state));
-
-		updatePreview();
-
-		const unitBtns = units.map((unit, i) => {
-			const btn = row.createEl('button', { cls: 'date-list-duration-unit-btn' });
-			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
-			btn.createEl('span', { text: unit.label, cls: 'date-list-option-text' });
-			if (unit.value === selectedUnit) btn.addClass('is-active');
-			btn.addEventListener('click', () => {
-				selectedUnit = unit.value;
-				unitBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				updatePreview();
-			});
-			btn.addEventListener('focus', () => {
-				selectedUnit = unit.value;
-				unitBtns.forEach(b => b.removeClass('is-active'));
-				btn.addClass('is-active');
-				updatePreview();
-			});
-			return btn;
-		});
-
-		input.addEventListener('input', updatePreview);
-
-		const submit = () => {
-			const n = parseInt(input.value);
-			if (isNaN(n) || n < 1) { new Notice('Enter a positive number.'); return; }
-			this.confirmed = true;
-			this.resolve({ nStr: String(n), stepUnit: selectedUnit });
-			this.close();
-		};
-
-		input.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') { e.preventDefault(); submit(); }
-		});
-
-		const durActions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		durActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
-
-		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (activeDocument.activeElement === input) return;
-			const focused = unitBtns.findIndex(b => b === activeDocument.activeElement);
-			if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-				e.preventDefault();
-				unitBtns[(focused + 1) % unitBtns.length]?.focus();
-			} else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-				e.preventDefault();
-				unitBtns[(focused - 1 + unitBtns.length) % unitBtns.length]?.focus();
-			} else if (e.key === 'Enter') {
-				e.preventDefault();
-				submit();
-			} else {
-				const idx = parseInt(e.key) - 1;
-				if (!isNaN(idx) && idx >= 0 && idx < units.length) {
-					e.preventDefault();
-					unitBtns[idx]!.focus();
-				}
-			}
-		});
-
-		window.setTimeout(() => { input.focus(); input.select(); }, 50);
-	}
-
-	onClose() {
+		this.fpInstances.forEach(fp => fp.destroy());
 		if (!this.confirmed) this.resolve(BACK);
 		this.contentEl.empty();
 	}

@@ -1,4 +1,3 @@
-
 .date-list-modal {
 	width: 50vw;
 	max-width: 50vw;
@@ -108,6 +107,12 @@
 	color: var(--text-on-accent);
 	box-shadow: none;
 	outline: none;
+}
+
+.date-list-option-btn:focus .date-list-option-subtext,
+.date-list-option-btn:focus .date-list-option-num {
+	color: var(--text-on-accent);
+	opacity: 0.7;
 }
 
 .date-list-option-num {
@@ -252,6 +257,10 @@
 .flatpickr-calendar.date-list-cal-floating {
 	position: fixed !important;
 	z-index: 99999;
+}
+
+.flatpickr-calendar.date-list-cal-hidden {
+	display: none !important;
 }
 
 /* ── Flatpickr — Obsidian theme overrides ────────────────────────── */
