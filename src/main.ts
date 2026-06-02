@@ -1,3 +1,7 @@
+// todo
+// - feature upgrade: allow tab to complete @ autosuggest. Enter should accept and newline
+// - new feature: autosuggest: populate the next 10 dates that match what the user has already entered. e.g. if today is june 1: @jun shows june 1-10. @next shows @next next mon-sun & next week, next month, etc.
+// - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: 
 
 import {
 	App,
@@ -2007,7 +2011,9 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 			return matchingPresets.map(p => toSuggestion(p.m, p.label));
 		}
 
-		return [{ insert: '', display: '', placeholder: true }];
+		// Nothing matched yet — keep the popup open by showing all presets so the
+		// user can keep typing until their input resolves to a valid date.
+		return presets.map(p => toSuggestion(p.m, p.label));
 	}
 
 	renderSuggestion(value: DateSuggestion, el: HTMLElement): void {
