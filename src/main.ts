@@ -1,6 +1,5 @@
 // todo
 // - add @@ for quick insert list (similar to @ for single day)
-// - update instructions on popdown @ modal: **type** enter a date expression | enter/tab (symbols) insert date | arrow (symbols) navigate to a date
 // - refactor the quick insert command so that the user immediately is on a text entry field that operates the same way as the @ quick insert. the user will also have the configure button available. 
 // - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
 import {
@@ -1954,9 +1953,9 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 		super(app);
 		this.plugin = plugin;
 		this.setInstructions([
-			{ command: '↵', purpose: 'insert date' },
-			{ command: '⇥', purpose: 'insert date' },
-			{ command: 'type', purpose: 'enter any date expression' },
+			{ command: 'type', purpose: 'enter a date expression' },
+			{ command: '↵ ⇥', purpose: 'insert date' },
+			{ command: '↑↓', purpose: 'navigate' },
 		]);
 		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
@@ -2240,13 +2239,12 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 		}
 
 		// Phase 6 — date math: @+N or @-N, optionally suffixed with d/w/m/y or full words.
-		// @+7 → all four unit options; @+7d / @+7 d / @+7 day / @+7 days → just days.
-		// @-N mirrors the same pattern into the past.
+		// @+ / @- defaults to N=1. @+7 → all four unit options; @+7d / @+7 d / @+7 day / @+7 days → just days.
 		{
-			const mathMatch = q.match(/^([+-])(\d+)\s*([a-z]*)$/);
+			const mathMatch = q.match(/^([+-])(\d*)\s*([a-z]*)$/);
 			if (mathMatch) {
 				const sign    = mathMatch[1] === '+' ? 1 : -1;
-				const n       = parseInt(mathMatch[2]!);
+				const n       = mathMatch[2] ? parseInt(mathMatch[2]) : 1;
 				const rawUnit = mathMatch[3]!.toLowerCase();
 
 				type Unit = { key: 'days' | 'weeks' | 'months' | 'years'; suffix: string; label: string };
