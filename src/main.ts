@@ -511,7 +511,7 @@ export default class DateListPlugin extends Plugin {
 		// ---------------------------------------------------------------
 		this.addCommand({
 			id: 'configure',
-			name: 'Configure date list',
+			name: 'Configure',
 			callback: async () => {
 				let step = 0;
 
@@ -761,7 +761,7 @@ export default class DateListPlugin extends Plugin {
 		// ---------------------------------------------------------------
 		this.addCommand({
 			id: 'filter-dates',
-			name: 'Filter Dates',
+			name: 'Filter dates',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let step = 0;
 				let selectedWeekdays: number[] = [1, 2, 3, 4, 5];
@@ -1403,7 +1403,7 @@ class InsertDateModal extends Modal {
 		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
 		const right = body.createEl('div', { cls: 'date-list-modal-right' });
 
-		left.createEl('p', { text: 'Pick a common range, or choose "Custom" to set your own dates.', cls: 'date-list-instructions' });
+		left.createEl('p', { text: 'Pick a common range, or choose "custom" to set your own dates.', cls: 'date-list-instructions' });
 
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
@@ -1959,7 +1959,7 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 			{ command: 'type', purpose: 'enter any date expression' },
 		]);
 		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
 			(this as any).suggestions.useSelectedItem(evt);
 			return true;
 		});

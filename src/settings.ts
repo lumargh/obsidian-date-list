@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting, moment as _m } from 'obsidian';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
 const moment = _m as any;
 import DateListPlugin from './main';
 
@@ -33,11 +33,11 @@ export class DateListSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Settings' });
+		new Setting(containerEl).setName('Settings').setHeading();
 
 		new Setting(containerEl)
 			.setName('Inline date trigger')
-			.setDesc("Character(s) that activate the date autocomplete while typing. Don't use \"/\" if you have the Slash Commands plugin enabled.")
+			.setDesc("Character(s) that activate the date autocomplete while typing. Don't use \"/\" if you have the slash commands plugin enabled.")
 			.addText((text) =>
 				text
 					.setPlaceholder('@')
@@ -56,6 +56,7 @@ export class DateListSettingTab extends PluginSettingTab {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
 					cls: 'date-list-settings-preview',
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
 					text: this.plugin.settings.defaultFormat ? moment().format(this.plugin.settings.defaultFormat) : '',
 				});
 				fmtPreview.toggle(!!this.plugin.settings.defaultFormat);
@@ -128,7 +129,7 @@ export class DateListSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		containerEl.createEl('h2', { text: 'Date Guide' });
+		new Setting(containerEl).setName('Date Guide').setHeading();
 
 		const tokenGroups: { label: string; tokens: [string, string, string][] }[] = [
 			{
