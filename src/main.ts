@@ -1,5 +1,4 @@
 // todo
-// - feature upgrade: allow tab to complete @ autosuggest. Enter should accept and newline
 // - new feature: autosuggest: populate the next 10 dates that match what the user has already entered. e.g. if today is june 1: @jun shows june 1-10. @next shows @next next mon-sun & next week, next month, etc.
 // - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: 
 
@@ -1958,8 +1957,14 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 		this.plugin = plugin;
 		this.setInstructions([
 			{ command: '↵', purpose: 'insert date' },
+			{ command: '⇥', purpose: 'insert date' },
 			{ command: 'type', purpose: 'enter any date expression' },
 		]);
+		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(this as any).suggestions.useSelectedItem(evt);
+			return true;
+		});
 	}
 
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
