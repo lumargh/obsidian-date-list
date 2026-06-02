@@ -149,13 +149,15 @@
 
 .setting-item-control.date-list-settings-has-preview {
 	flex-direction: column;
-	align-items: flex-end;
+	align-items: stretch;
 }
 
 .date-list-settings-preview {
 	color: var(--text-muted);
 	font-family: var(--font-monospace);
 	font-size: var(--font-smaller);
+	text-align: right;
+	margin-top: 4px;
 }
 
 .date-list-duration-row {
