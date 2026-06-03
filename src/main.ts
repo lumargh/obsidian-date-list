@@ -2281,7 +2281,7 @@ class DateListSuggest extends EditorSuggest<DateListSuggestion> {
 	}
 
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
-		const trigger = (this.plugin.settings.suggestTrigger || '@').repeat(2);
+		const trigger = this.plugin.settings.listSuggestTrigger || '@@';
 		const line = editor.getLine(cursor.line);
 		const before = line.slice(0, cursor.ch);
 		const triggerIdx = before.lastIndexOf(trigger);

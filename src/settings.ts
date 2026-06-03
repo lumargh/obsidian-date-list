@@ -10,6 +10,7 @@ export interface DateListSettings {
 	defaultPrefix: string;
 	defaultPostfix: string;
 	suggestTrigger: string;
+	listSuggestTrigger: string;
 }
 
 export const DEFAULT_SETTINGS: DateListSettings = {
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: DateListSettings = {
 	defaultPrefix: '',
 	defaultPostfix: '',
 	suggestTrigger: '@',
+	listSuggestTrigger: '@@',
 };
 
 export class DateListSettingTab extends PluginSettingTab {
@@ -45,6 +47,20 @@ export class DateListSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						if (value.length === 0) return;
 						this.plugin.settings.suggestTrigger = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Inline date list trigger')
+			.setDesc("Character(s) that activate the date list autocomplete while typing.")
+			.addText((text) =>
+				text
+					.setPlaceholder('@@')
+					.setValue(this.plugin.settings.listSuggestTrigger)
+					.onChange(async (value) => {
+						if (value.length === 0) return;
+						this.plugin.settings.listSuggestTrigger = value;
 						await this.plugin.saveSettings();
 					}),
 			);

@@ -38,6 +38,25 @@ The popup is predictive based on what you type after `@`:
 
 ---
 
+### Inline `@@` date list autosuggest
+
+Type `@@` (or your configured list trigger) to open a range picker that inserts a full list of dates at the cursor. Press **↵** or **⇥** to insert, **↑↓** to navigate.
+
+Six presets appear immediately:
+
+| What you type | What you get |
+|---|---|
+| `@@` | All six presets |
+| `@@this` | This week, this month |
+| `@@next` | Next week, next month, next 7 days, next 30 days |
+| `@@next 14 days` | Jun 2 – Jun 15 (14 dates) |
+| `@@next 3 weeks` | 21 dates starting today |
+| `@@next 2 months` | ~61 dates starting today |
+
+Each row shows the label, the date range, and the number of dates. The inserted list uses your configured format, prefix, postfix, and wiki link settings.
+
+---
+
 ### Quick Insert
 
 **Date List: Quick insert** drops a single formatted date at the cursor. Pick from common presets or type any custom date expression.
@@ -90,7 +109,9 @@ The **Date List: Filter dates** command allows you to find all instances of a sp
 
 ### Configure Date List
 
-In the plugin settings, you can customize your default date format preferences. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias. 
+In the plugin settings, you can customize your default date format preferences and trigger characters. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias.
+
+The **inline date trigger** (default `@`) and **inline date list trigger** (default `@@`) can each be changed to any character or sequence that doesn't conflict with other plugins.
 
 ![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
 
