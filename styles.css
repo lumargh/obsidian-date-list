@@ -425,8 +425,11 @@ span.flatpickr-weekday {
 
 .date-list-suggest-insert {
 	flex: 1;
+	
 	font-family: var(--font-monospace);
-	font-size: var(--font-small);
+	font-weight: bold;
+	font-size: var(--font-smaller);
+	color: var(--text-muted);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -467,6 +470,7 @@ span.flatpickr-weekday {
 .date-list-list-suggest-range {
 	flex: 1;
 	font-family: var(--font-monospace);
+	font-weight: bold;
 	font-size: var(--font-smaller);
 	color: var(--text-muted);
 	white-space: nowrap;
