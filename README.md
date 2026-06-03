@@ -132,6 +132,10 @@ All screens support full keyboard control:
 - **Escape / ←** — go back
 - **OK button** — available on every screen for mouse-only users
 
+## Related plugins
+
+If you like Date List, you might also like [Calendar List](https://github.com/lumargh/obsidian-calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes.
+
 ## Feedback and contributions
 
 Let me know if you have any feedback or suggestions! 
