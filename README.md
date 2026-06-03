@@ -1,12 +1,56 @@
 # Date List
 
-An Obsidian plugin for inserting formatted date lists and single dates, with a live-preview wizard and inline autocomplete.
+An Obsidian plugin for inserting single dates and formatted date lists, with a live-preview wizard and inline autocomplete.
 
 ## Features
+
+Every time you enter a date, you can choose from a default format or customize it on the fly. The plugin supports wiki links, aliases, and any date format you can think of.
 
 In the plugin settings, you can customize your default preferences. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias. 
 
 ![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
+
+### Inline `@` autosuggest
+
+Type `@` (or your configured trigger) anywhere in a note to open a predictive date suggestion popup. The suggestions update live as you type — press **↵** or **⇥** to insert, **↑↓** to navigate.
+
+![Inline date suggest](https://github.com/lumargh/obsidian-date-list/blob/master/assets/inline-insert.png)
+
+The popup is predictive based on what you type after `@`:
+
+| What you type | What you get |
+|---|---|
+| `@` | Today, tomorrow, yesterday |
+| `@t` | Presets + upcoming Tuesdays and Thursdays |
+| `@mon` | Next 7 Mondays |
+| `@june` | 7-day window starting from June |
+| `@jun15` | 7-day window starting from June 15 |
+| `@this` | Remaining days of this week |
+| `@next` | All days of next week |
+| `@last` | All days of last week |
+| `@2026-06-15` | ISO date (full or partial: `@2026`, `@2026-06`) |
+| `@20260615` | Compact date |
+| `@6/15` | Slash date — shows both US (Jun 15) and EU (Jun 6) options |
+| `@15 jun` | Military format (`@15 jun 2026` for a specific year) |
+| `@+7` | 7 days from today in all units (days / weeks / months / years) |
+| `@+7d` | 7 days from today (`d`, `w`, `m`, `y` or full words like `days`) |
+| `@+` / `@-` | Tomorrow / yesterday |
+
+---
+
+### Quick Insert
+
+**Date List: Quick insert** drops a single formatted date at the cursor. Pick from common presets or type any custom date expression.
+
+![Quick insert](https://github.com/lumargh/obsidian-date-list/blob/master/assets/quick-insert.png)
+
+You can also use a calendar popup:
+
+![Calendar popup](https://github.com/lumargh/obsidian-date-list/blob/master/assets/calendar.png)
+
+The inserted date uses your configured default format, wiki links, and alias settings.
+
+---
 
 ### Insert Date List
 
@@ -29,7 +73,7 @@ For a custom range, choose **Custom…** (option 7) to expand an inline date pic
 | **In the past** | N days / weeks / months / years back to today |
 | **Duration** | N days / weeks / months / years forward from a chosen start date |
 
-All date fields accept natural language — see [Date input formats](#date-inputs) below.
+All date fields accept natural language input.
 
 A **⚙ Configure format…** button is available on every screen to set the date format, wiki links, prefix, and postfix before inserting.
 
@@ -44,47 +88,13 @@ The **Date List: Filter dates** command allows you to find all instances of a sp
 
 ---
 
-### Quick Insert
-
-**Date List: Quick insert** drops a single formatted date at the cursor. Pick from common presets (today, tomorrow, yesterday, next Monday, next week, next month) or type any custom date expression.
-
-![Quick insert](https://github.com/lumargh/obsidian-date-list/blob/master/assets/quick-insert.png)
-
-Even faster, type `@` (or your configured trigger) anywhere in a note to open a date suggestion popup. Arrow through the presets or keep typing any date expression — the suggestion updates live as you type.
-
-![Inline date suggest](https://github.com/lumargh/obsidian-date-list/blob/master/assets/inline-insert.png)
-
-### Date Inputs
-
-You are able to write dates in a number of natural ways, including: 
-
-| Input example                          | Resolves to                          |
-| -------------------------------------- | ------------------------------------ |
-| `today`, `tomorrow`, `yesterday`       | Relative to now                      |
-| `+7`, `-3`                             | Days from today                      |
-| `next monday` / `last friday`          | Next or last occurrence of a weekday |
-| `next week`, `next month`, `next year` | Start of that period                 |
-| `in 3 weeks`, `2 months ago`           | Relative offset                      |
-| `june 1`, `Jun 1st`                    | That date in the current year        |
-| `june 1, 2027`                         | A specific date                      |
-| `6/1`, `6/1/2027`                      | Month/day shorthand                  |
-| `2027-06-01`                           | ISO 8601                             |
-
-You can also use a calendar popup: 
-
-![Calendar popup](https://github.com/lumargh/obsidian-date-list/blob/master/assets/calendar.png)
-
-The inserted date uses your configured default format, wiki links, and alias settings.
-
----
-
 ### Configure Date List
 
 In the plugin settings, you can customize your default date format preferences. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias. 
 
 ![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
 
-**Date List: Configure date list** runs a wizard to set your format defaults without inserting anything — useful for changing defaults without having to insert a list first.
+**Date List: Configure** runs a wizard to set your format defaults without inserting anything — useful for changing defaults without having to insert a list first.
 
 ---
 

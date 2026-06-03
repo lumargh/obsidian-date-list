@@ -1,7 +1,5 @@
 // todo
-// - add @@ for quick insert list (similar to @ for single day)
-// - refactor the quick insert command so that the user immediately is on a text entry field that operates the same way as the @ quick insert. the user will also have the configure button available. 
-// - new featuer: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
+// - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
 import {
 	App,
 	Editor,
@@ -280,12 +278,12 @@ function suggest<T>(
 
 function promptQuickInsert(
 	app: App,
-	presets: { label: string; formatted: string; m: MomentInstance }[],
+	settings: DateListSettings,
 	blankState: WizardState,
 	buildState: (m: MomentInstance) => WizardState,
 ): Promise<MomentInstance | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new QuickInsertModal(app, presets, blankState, buildState, resolve).open(),
+		new QuickInsertModal(app, settings, blankState, buildState, resolve).open(),
 	);
 }
 
@@ -912,28 +910,7 @@ export default class DateListPlugin extends Plugin {
 						postfix: s.defaultPostfix,
 					});
 
-					const formatMoment = (m: MomentInstance): string => {
-						const formatted = m.format(fmt);
-						if (s.defaultWikiLinks) {
-							return s.defaultAlias ? `[[${formatted}|${m.format(s.defaultAlias)}]]` : `[[${formatted}]]`;
-						}
-						return formatted;
-					};
-
-					const presetDefs: { label: string; m: MomentInstance }[] = [
-						{ label: 'today',       m: moment() },
-						{ label: 'tomorrow',    m: moment().add(1, 'days') },
-						{ label: 'yesterday',   m: moment().subtract(1, 'days') },
-						{ label: 'next monday', m: parseDate('next monday') },
-						{ label: 'next week',   m: parseDate('next week') },
-						{ label: 'next month',  m: parseDate('next month') },
-					];
-					const seen = new Set<string>();
-					const presets = presetDefs
-						.filter(p => { const k = p.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); })
-						.map(p => ({ label: p.label, formatted: formatMoment(p.m), m: p.m }));
-
-					const r = await promptQuickInsert(this.app, presets, buildState(moment()), buildState);
+					const r = await promptQuickInsert(this.app, s, buildState(moment()), buildState);
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, moment(), { fmt, wikiLinks: s.defaultWikiLinks, alias: s.defaultAlias, prefix: s.defaultPrefix, postfix: s.defaultPostfix }, this.settings);
@@ -954,6 +931,7 @@ export default class DateListPlugin extends Plugin {
 		});
 
 		this.registerEditorSuggest(new DateSuggest(this.app, this));
+		this.registerEditorSuggest(new DateListSuggest(this.app, this));
 	}
 
 	onunload() {}
@@ -1022,7 +1000,7 @@ class PromptModal extends Modal {
 
 		input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
 		const promptActions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		promptActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
+		promptActions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' }).addEventListener('click', submit);
 
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
@@ -1144,7 +1122,7 @@ class SuggesterModal<T> extends Modal {
 		});
 
 		const suggActions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		const suggOkBtn = suggActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		const suggOkBtn = suggActions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' });
 		suggOkBtn.addEventListener('click', () => {
 			const focused = btns.findIndex(b => b === activeDocument.activeElement);
 			select(focused >= 0 ? focused : 0);
@@ -1175,22 +1153,21 @@ class SuggesterModal<T> extends Modal {
 // QuickInsertModal
 // -------------------------------------------------------------------
 class QuickInsertModal extends Modal {
-	private presets: { label: string; formatted: string; m: MomentInstance }[];
+	private settings: DateListSettings;
 	private blankState: WizardState;
 	private buildState: (m: MomentInstance) => WizardState;
 	private resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void;
 	private confirmed = false;
-	private fpInstances: FpInstance[] = [];
 
 	constructor(
 		app: App,
-		presets: { label: string; formatted: string; m: MomentInstance }[],
+		settings: DateListSettings,
 		blankState: WizardState,
 		buildState: (m: MomentInstance) => WizardState,
 		resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void,
 	) {
 		super(app);
-		this.presets = presets;
+		this.settings = settings;
 		this.blankState = blankState;
 		this.buildState = buildState;
 		this.resolve = resolve;
@@ -1209,138 +1186,89 @@ class QuickInsertModal extends Modal {
 		const left = body.createEl('div', { cls: 'date-list-modal-left' });
 		const right = body.createEl('div', { cls: 'date-list-modal-right' });
 
-		left.createEl('p', { text: 'Pick a date or type a custom one.', cls: 'date-list-instructions' });
-
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
 		renderPreview(previewEl, this.blankState);
 
-		const select = (m: MomentInstance) => {
+		const searchInput = left.createEl('input', {
+			type: 'text',
+			cls: 'date-list-quick-search',
+			placeholder: 'type a date…',
+		});
+
+		const listEl = left.createEl('div');
+		let currentSuggestions: DateSuggestion[] = [];
+		let currentBtns: HTMLButtonElement[] = [];
+
+		const select = (s: DateSuggestion) => {
 			this.confirmed = true;
-			this.resolve(m);
+			this.resolve(s.m);
 			this.close();
 		};
 
-		const btns = this.presets.map((preset, i) => {
-			const btn = left.createEl('button', { cls: 'date-list-option-btn has-subtext' });
-			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
-			btn.createEl('span', { text: preset.label, cls: 'date-list-option-subtext' });
-			btn.createEl('span', { text: preset.formatted, cls: 'date-list-option-text' });
-			btn.addEventListener('click', () => select(preset.m));
-			btn.addEventListener('mouseenter', () => renderPreview(previewEl, this.buildState(preset.m)));
-			btn.addEventListener('mouseleave', () => renderPreview(previewEl, this.blankState));
-			btn.addEventListener('focus',      () => renderPreview(previewEl, this.buildState(preset.m)));
-			btn.addEventListener('blur',       () => renderPreview(previewEl, this.blankState));
-			return btn;
-		});
-
-		// Inline custom input as the last "option"
-		const customRow = left.createEl('div', { cls: 'date-list-option-btn date-list-quick-custom-row' });
-		customRow.createEl('span', { text: String(this.presets.length + 1), cls: 'date-list-option-num' });
-		const customInput = customRow.createEl('input', {
-			type: 'text',
-			cls: 'date-list-quick-custom-input',
-			placeholder: 'custom date…',
-		});
-
-		const calBtn = customRow.createEl('button', { cls: 'date-list-calendar-btn', attr: { type: 'button' } });
-		setIcon(calBtn, 'calendar');
-		const fpAnchor = customRow.createEl('div');
-		const fp = flatpickr(fpAnchor, {
-			inline: true,
-			dateFormat: 'Y-m-d',
-			disableMobile: true,
-			onChange: (_dates: Date[], dateStr: string) => {
-				if (dateStr) {
-					customInput.value = dateStr;
-					customInput.dispatchEvent(new Event('input'));
-					hideCal();
-				}
-			},
-		});
-		this.fpInstances.push(fp);
-		const cal = fp.calendarContainer;
-		cal.classList.add('date-list-cal-floating', 'date-list-cal-hidden');
-		activeDocument.body.appendChild(cal);
-		fpAnchor.remove();
-		const hideCal = () => {
-			cal.classList.add('date-list-cal-hidden');
-			calBtn.classList.remove('is-active');
-			activeDocument.removeEventListener('mousedown', handleOutside, true);
+		const renderList = (query: string) => {
+			listEl.empty();
+			currentSuggestions = computeDateSuggestions(query, this.settings);
+			currentBtns = currentSuggestions.map((s, i) => {
+				const btn = listEl.createEl('button', { cls: 'date-list-option-btn has-subtext' });
+				btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+				if (s.label) btn.createEl('span', { text: s.label, cls: 'date-list-option-subtext' });
+				btn.createEl('span', { text: s.insert, cls: 'date-list-option-text' });
+				btn.addEventListener('click', () => select(s));
+				btn.addEventListener('mouseenter', () => renderPreview(previewEl, this.buildState(s.m)));
+				btn.addEventListener('mouseleave', () => renderPreview(previewEl, this.blankState));
+				btn.addEventListener('focus',      () => renderPreview(previewEl, this.buildState(s.m)));
+				btn.addEventListener('blur',       () => renderPreview(previewEl, this.blankState));
+				return btn as HTMLButtonElement;
+			});
 		};
-		const handleOutside = (e: MouseEvent) => {
-			if (!activeDocument.body.contains(cal)) { activeDocument.removeEventListener('mousedown', handleOutside, true); return; }
-			if (!cal.contains(e.target as Node) && !calBtn.contains(e.target as Node)) hideCal();
-		};
-		calBtn.addEventListener('click', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			if (!cal.classList.contains('date-list-cal-hidden')) { hideCal(); return; }
-			const m = parseDate(customInput.value);
-			if (m.isValid()) fp.setDate(m.toDate(), false);
-			const rect = calBtn.getBoundingClientRect();
-			cal.style.top = `${rect.bottom + 4}px`;
-			cal.style.left = `${rect.left}px`;
-			cal.classList.remove('date-list-cal-hidden');
-			calBtn.classList.add('is-active');
-			window.setTimeout(() => activeDocument.addEventListener('mousedown', handleOutside, true), 0);
-		});
 
-		customRow.addEventListener('click', () => customInput.focus());
+		renderList('');
 
-		const updateCustomPreview = () => {
-			const m = parseDate(customInput.value);
-			renderPreview(previewEl, m.isValid() ? this.buildState(m) : this.blankState);
-		};
-		customInput.addEventListener('input',  updateCustomPreview);
-		customInput.addEventListener('focus',  updateCustomPreview);
-		customInput.addEventListener('blur',   () => renderPreview(previewEl, this.blankState));
-		customInput.addEventListener('keydown', (e) => {
+		searchInput.addEventListener('input', () => renderList(searchInput.value.trim()));
+		searchInput.addEventListener('blur',  () => renderPreview(previewEl, this.blankState));
+
+		searchInput.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter') {
 				e.preventDefault();
-				const m = parseDate(customInput.value);
-				if (!m.isValid()) { new Notice('Invalid date.'); return; }
-				select(m);
-			} else if (e.key === 'ArrowUp') {
+				if (currentSuggestions[0]) select(currentSuggestions[0]);
+			} else if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				btns[btns.length - 1]?.focus();
+				e.stopPropagation();
+				currentBtns[0]?.focus();
 			}
 		});
 
 		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (activeDocument.activeElement === customInput) return;
-			const focused = btns.findIndex(b => b === activeDocument.activeElement);
+			if (activeDocument.activeElement === searchInput) return;
+			const focused = currentBtns.findIndex(b => b === activeDocument.activeElement);
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				if (focused === btns.length - 1) customInput.focus();
-				else btns[(focused + 1) % btns.length]?.focus();
+				if (focused >= currentBtns.length - 1) searchInput.focus();
+				else currentBtns[focused + 1]?.focus();
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				btns[(focused - 1 + btns.length) % btns.length]?.focus();
+				if (focused <= 0) searchInput.focus();
+				else currentBtns[focused - 1]?.focus();
 			} else if (e.key === 'Enter' && focused >= 0) {
 				e.preventDefault();
-				select(this.presets[focused]!.m);
+				const s = currentSuggestions[focused];
+				if (s) select(s);
 			} else {
 				const idx = parseInt(e.key) - 1;
 				if (isNaN(idx)) return;
 				e.preventDefault();
-				if (idx >= 0 && idx < this.presets.length) select(this.presets[idx]!.m);
-				else if (idx === this.presets.length) customInput.focus();
+				const s = currentSuggestions[idx];
+				if (s) select(s);
 			}
 		});
 
 		const qiActions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		const qiOkBtn = qiActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		const qiOkBtn = qiActions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' });
 		qiOkBtn.addEventListener('click', () => {
-			const customVal = customInput.value.trim();
-			if (customVal) {
-				const m = parseDate(customVal);
-				if (!m.isValid()) { new Notice('Invalid date.'); return; }
-				select(m);
-				return;
-			}
-			const focused = btns.findIndex(b => b === activeDocument.activeElement);
-			select(focused >= 0 ? this.presets[focused]!.m : this.presets[0]!.m);
+			const s = currentSuggestions[currentBtns.findIndex(b => b === activeDocument.activeElement)];
+			if (s) select(s);
+			else if (currentSuggestions[0]) select(currentSuggestions[0]);
 		});
 		const qiConfigBtn = qiActions.createEl('button', { cls: 'date-list-configure-btn' });
 		setIcon(qiConfigBtn, 'settings');
@@ -1351,11 +1279,10 @@ class QuickInsertModal extends Modal {
 			this.close();
 		});
 
-		window.setTimeout(() => btns[0]?.focus(), 50);
+		window.setTimeout(() => searchInput.focus(), 50);
 	}
 
 	onClose() {
-		this.fpInstances.forEach(fp => fp.destroy());
 		if (!this.confirmed) this.resolve(BACK);
 		this.contentEl.empty();
 	}
@@ -1607,7 +1534,7 @@ class InsertDateModal extends Modal {
 
 		// — Actions row —
 		const actions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		const okBtn = actions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' });
+		const okBtn = actions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' });
 		okBtn.addEventListener('click', () => {
 			if (customActive) { submitCustom(); return; }
 			const fi = presetBtns.findIndex(b => b === activeDocument.activeElement);
@@ -1904,7 +1831,7 @@ class FilterRangeModal extends Modal {
 		});
 
 		const frActions = left.createEl('div', { cls: 'date-list-modal-actions' });
-		frActions.createEl('button', { cls: 'date-list-ok-btn', text: 'OK' }).addEventListener('click', submit);
+		frActions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' }).addEventListener('click', submit);
 		const frConfigBtn = frActions.createEl('button', { cls: 'date-list-configure-btn' });
 		setIcon(frConfigBtn, 'settings');
 		frConfigBtn.createEl('span', { text: 'Configure format…' });
@@ -1938,6 +1865,13 @@ interface DateSuggestion {
 	display: string;
 	label?: string;
 	placeholder?: true;
+	m: MomentInstance;
+}
+
+interface DateListSuggestion {
+	label: string;
+	range: string;
+	dates: string[];
 }
 
 const SUGGEST_PRESETS: { label: string; fn: () => MomentInstance }[] = [
@@ -1945,6 +1879,264 @@ const SUGGEST_PRESETS: { label: string; fn: () => MomentInstance }[] = [
 	{ label: 'tomorrow',  fn: () => moment().add(1, 'days') },
 	{ label: 'yesterday', fn: () => moment().subtract(1, 'days') },
 ];
+
+function computeDateSuggestions(query: string, settings: DateListSettings): DateSuggestion[] {
+	const fmt = settings.defaultFormat || 'YYYY-MM-DD';
+
+	const toSuggestion = (m: MomentInstance, label?: string): DateSuggestion => {
+		const formatted = m.format(fmt);
+		const insert = settings.defaultWikiLinks
+			? (settings.defaultAlias ? `[[${formatted}|${m.format(settings.defaultAlias)}]]` : `[[${formatted}]]`)
+			: formatted;
+		return { insert, display: m.format('ddd, MMM D, YYYY'), label, m };
+	};
+
+	const presets = SUGGEST_PRESETS.map(p => ({ label: p.label, m: p.fn() }));
+
+	if (!query) return presets.map(p => toSuggestion(p.m, p.label));
+
+	const q = query.toLowerCase();
+	const seen = new Set<string>();
+	const today = moment().startOf('day');
+
+	// Phase 2 — letter prefix: matching presets + weekday recurrences.
+	{
+		const results: DateSuggestion[] = [];
+
+		for (const p of presets) {
+			if (p.label.startsWith(q)) {
+				const k = p.m.format('YYYY-MM-DD');
+				if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(p.m, p.label)); }
+			}
+		}
+
+		const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+		const matchingWeekdays = WEEKDAY_NAMES
+			.map((name, idx) => ({ name, idx }))
+			.filter(w => w.name.startsWith(q));
+
+		if (matchingWeekdays.length > 0) {
+			const candidates: { m: MomentInstance; label: string }[] = [];
+			for (const wd of matchingWeekdays) {
+				const cursor = today.clone();
+				let count = 0;
+				while (count < 7) {
+					if (cursor.day() === wd.idx) { candidates.push({ m: cursor.clone(), label: wd.name }); count++; }
+					cursor.add(1, 'days');
+				}
+			}
+			candidates.sort((a, b) => a.m.valueOf() - b.m.valueOf());
+			for (const c of candidates) {
+				if (results.length >= 7) break;
+				const k = c.m.format('YYYY-MM-DD');
+				if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(c.m, c.label)); }
+			}
+		}
+
+		if (results.length > 0) return results;
+	}
+
+	// Phase 3 — month prefix: 7-date window in the nearest matching month.
+	{
+		const monthMatch = q.match(/^([a-z]+)\s*(\d*)$/);
+		if (monthMatch) {
+			const monthPrefix = monthMatch[1]!;
+			const dayStr = monthMatch[2]!;
+			const monthNames = moment.months().map((n) => n.toLowerCase());
+			const candidates = monthNames
+				.map((name, idx) => ({ name, idx }))
+				.filter((m) => m.name.startsWith(monthPrefix));
+
+			if (candidates.length > 0) {
+				const upcoming = candidates.map(({ idx }) => {
+					let start = today.clone().month(idx).date(1).startOf('day');
+					if (start.isBefore(today) && idx !== today.month()) start = start.clone().add(1, 'years');
+					return { idx, start };
+				});
+				upcoming.sort((a, b) => a.start.valueOf() - b.start.valueOf());
+				const { idx: chosenIdx, start } = upcoming[0]!;
+
+				let windowStart = start.clone();
+				if (dayStr) {
+					const dayNum = parseInt(dayStr);
+					const shifted = today.clone().month(chosenIdx).date(dayNum).startOf('day');
+					if (shifted.isValid() && shifted.month() === chosenIdx) windowStart = shifted;
+				}
+
+				const results: DateSuggestion[] = [];
+				const cursor = windowStart.clone();
+				while (results.length < 7) {
+					const k = cursor.format('YYYY-MM-DD');
+					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
+					cursor.add(1, 'days');
+				}
+				if (results.length > 0) return results;
+			}
+		}
+	}
+
+	// Phase 4 — this / next / last
+	{
+		const keyword = q.split(' ')[0]!;
+		if (keyword === 'this' || keyword === 'next' || keyword === 'last') {
+			const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+			const entries: { label: string; m: MomentInstance }[] = [];
+
+			if (keyword === 'this') {
+				const weekStart = today.clone().startOf('isoWeek');
+				for (let i = 0; i < 7; i++) {
+					const m = weekStart.clone().add(i, 'days');
+					if (!m.isBefore(today)) entries.push({ label: `this ${DAYS[i]}`, m });
+				}
+				if (entries.length < 7) {
+					entries.push({ label: 'this week',  m: today.clone().startOf('isoWeek') });
+					entries.push({ label: 'this month', m: today.clone().startOf('month') });
+				}
+			} else if (keyword === 'next') {
+				for (const day of DAYS) entries.push({ label: `next ${day}`, m: parseDate(`next ${day}`) });
+				entries.push({ label: 'next week',  m: parseDate('next week') });
+				entries.push({ label: 'next month', m: parseDate('next month') });
+			} else {
+				const lastMonday = today.clone().subtract(1, 'weeks').startOf('isoWeek');
+				for (let i = 0; i < 7; i++) entries.push({ label: `last ${DAYS[i]}`, m: lastMonday.clone().add(i, 'days') });
+				entries.push({ label: 'last week',  m: lastMonday.clone() });
+				entries.push({ label: 'last month', m: today.clone().subtract(1, 'months').startOf('month') });
+			}
+
+			const results = entries
+				.filter(e => e.label.startsWith(q))
+				.filter(e => { const k = e.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); })
+				.map(e => toSuggestion(e.m, e.label));
+			if (results.length > 0) return results;
+		}
+	}
+
+	// Phase 5 — numeric date entry in multiple formats.
+	{
+		const windowFrom = (start: MomentInstance): DateSuggestion[] => {
+			const results: DateSuggestion[] = [];
+			const cursor = start.clone();
+			while (results.length < 7) {
+				const k = cursor.format('YYYY-MM-DD');
+				if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
+				cursor.add(1, 'days');
+			}
+			return results;
+		};
+
+		if (/^\d{8}$/.test(q)) {
+			const yr = parseInt(q.slice(0, 4));
+			const mo = parseInt(q.slice(4, 6)) - 1;
+			const dy = parseInt(q.slice(6, 8));
+			const m  = today.clone().year(yr).month(mo).date(dy).startOf('day');
+			if (m.isValid() && m.month() === mo) {
+				const results = windowFrom(m);
+				if (results.length > 0) return results;
+			}
+		}
+
+		const slashMatch = q.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+		if (slashMatch) {
+			const a    = parseInt(slashMatch[1]!);
+			const b    = parseInt(slashMatch[2]!);
+			const yStr = slashMatch[3];
+			const yr   = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
+			const tryDate = (month: number, day: number): MomentInstance | null => {
+				if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+				const m = today.clone().year(yr).month(month - 1).date(day).startOf('day');
+				return m.isValid() && m.month() === month - 1 ? m : null;
+			};
+			const usDate = tryDate(a, b);
+			const euDate = tryDate(b, a);
+			const usKey  = usDate?.format('YYYY-MM-DD');
+			const euKey  = euDate?.format('YYYY-MM-DD');
+			const results: DateSuggestion[] = [];
+			if (usDate && !seen.has(usKey!)) { seen.add(usKey!); results.push(toSuggestion(usDate, 'US')); }
+			if (euDate && euKey !== usKey && !seen.has(euKey!)) { seen.add(euKey!); results.push(toSuggestion(euDate, 'EU')); }
+			if (results.length > 0) return results;
+		}
+
+		const isoMatch = q.match(/^(\d{1,4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/);
+		if (isoMatch) {
+			const yearStr  = isoMatch[1]!;
+			const monthStr = isoMatch[2];
+			const dayStr   = isoMatch[3];
+			const monthNum = monthStr !== undefined ? parseInt(monthStr) : null;
+			const dayNum   = dayStr   !== undefined ? parseInt(dayStr)   : null;
+			const monthOk  = monthNum === null || (monthNum >= 1 && monthNum <= 12);
+			const dayOk    = dayNum   === null || (dayNum   >= 1 && dayNum   <= 31);
+			if (monthOk && dayOk) {
+				const fullYear = yearStr.length === 4 ? parseInt(yearStr) : null;
+				const monthIdx = monthNum !== null ? monthNum - 1 : null;
+				let windowStart: MomentInstance;
+				if (fullYear !== null && monthIdx !== null && dayNum !== null) {
+					windowStart = today.clone().year(fullYear).month(monthIdx).date(dayNum).startOf('day');
+				} else if (fullYear !== null && monthIdx !== null) {
+					const isCurrent = fullYear === today.year() && monthIdx === today.month();
+					windowStart = isCurrent
+						? today.clone()
+						: today.clone().year(fullYear).month(monthIdx).date(1).startOf('day');
+				} else if (fullYear !== null) {
+					windowStart = fullYear === today.year()
+						? today.clone()
+						: today.clone().year(fullYear).month(0).date(1).startOf('day');
+				} else {
+					windowStart = today.clone();
+				}
+				if (windowStart.isValid()) {
+					const results = windowFrom(windowStart);
+					if (results.length > 0) return results;
+				}
+			}
+		}
+
+		const milMatch = q.match(/^(\d{1,2})\s+([a-z]{3,9})(?:\s+(\d{2,4}))?$/);
+		if (milMatch) {
+			const day    = parseInt(milMatch[1]!);
+			const monStr = milMatch[2]!;
+			const yStr   = milMatch[3];
+			const yr     = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
+			const monthNames = moment.months().map(n => n.toLowerCase());
+			const monthAbbs  = moment.monthsShort().map(n => n.toLowerCase());
+			let monthIdx = monthNames.indexOf(monStr);
+			if (monthIdx === -1) monthIdx = monthAbbs.indexOf(monStr);
+			if (monthIdx !== -1 && day >= 1 && day <= 31) {
+				const m = today.clone().year(yr).month(monthIdx).date(day).startOf('day');
+				if (m.isValid() && m.month() === monthIdx) {
+					const results = windowFrom(m);
+					if (results.length > 0) return results;
+				}
+			}
+		}
+	}
+
+	// Phase 6 — date math: @+N / @-N with optional unit suffix.
+	{
+		const mathMatch = q.match(/^([+-])(\d*)\s*([a-z]*)$/);
+		if (mathMatch) {
+			const sign    = mathMatch[1] === '+' ? 1 : -1;
+			const n       = mathMatch[2] ? parseInt(mathMatch[2]) : 1;
+			const rawUnit = mathMatch[3]!.toLowerCase();
+			type Unit = { key: 'days' | 'weeks' | 'months' | 'years'; suffix: string; label: string };
+			const ALL_UNITS: Unit[] = [
+				{ key: 'days',   suffix: 'd', label: 'days'   },
+				{ key: 'weeks',  suffix: 'w', label: 'weeks'  },
+				{ key: 'months', suffix: 'm', label: 'months' },
+				{ key: 'years',  suffix: 'y', label: 'years'  },
+			];
+			const units = rawUnit
+				? ALL_UNITS.filter(u => u.key.startsWith(rawUnit) || u.suffix === rawUnit)
+				: ALL_UNITS;
+			const results = units.map(u => {
+				const m = today.clone().add(sign * n, u.key);
+				return toSuggestion(m, `${sign > 0 ? '+' : '-'}${n} ${u.label}`);
+			});
+			if (results.length > 0) return results;
+		}
+	}
+
+	return presets.map(p => toSuggestion(p.m, p.label));
+}
 
 class DateSuggest extends EditorSuggest<DateSuggestion> {
 	private plugin: DateListPlugin;
@@ -1977,311 +2169,20 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 	}
 
 	getSuggestions(context: EditorSuggestContext): DateSuggestion[] {
-		const s = this.plugin.settings;
-		const fmt = s.defaultFormat || 'YYYY-MM-DD';
-		const query = context.query.trim();
-
-		const toSuggestion = (m: MomentInstance, label?: string): DateSuggestion => {
-			const formatted = m.format(fmt);
-			const insert = s.defaultWikiLinks
-				? (s.defaultAlias ? `[[${formatted}|${m.format(s.defaultAlias)}]]` : `[[${formatted}]]`)
-				: formatted;
-			return { insert, display: m.format('ddd, MMM D, YYYY'), label };
-		};
-
-		const presets = SUGGEST_PRESETS.map(p => ({ label: p.label, m: p.fn() }));
-
-		// Empty query — show the 3 base presets; Tab accepts today (first item).
-		if (!query) return presets.map(p => toSuggestion(p.m, p.label));
-
-		const q = query.toLowerCase();
-		const seen = new Set<string>();
-		const today = moment().startOf('day');
-
-		// Phase 2 — letter prefix: matching presets + weekday recurrences.
-		// e.g. @t → today, tomorrow, tuesday, thursday occurrences (chronological, deduped, cap 7)
-		{
-			const results: DateSuggestion[] = [];
-
-			for (const p of presets) {
-				if (p.label.startsWith(q)) {
-					const k = p.m.format('YYYY-MM-DD');
-					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(p.m, p.label)); }
-				}
-			}
-
-			const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-			const matchingWeekdays = WEEKDAY_NAMES
-				.map((name, idx) => ({ name, idx }))
-				.filter(w => w.name.startsWith(q));
-
-			if (matchingWeekdays.length > 0) {
-				const candidates: { m: MomentInstance; label: string }[] = [];
-				for (const wd of matchingWeekdays) {
-					const cursor = today.clone();
-					let count = 0;
-					while (count < 7) {
-						if (cursor.day() === wd.idx) { candidates.push({ m: cursor.clone(), label: wd.name }); count++; }
-						cursor.add(1, 'days');
-					}
-				}
-				candidates.sort((a, b) => a.m.valueOf() - b.m.valueOf());
-				for (const c of candidates) {
-					if (results.length >= 7) break;
-					const k = c.m.format('YYYY-MM-DD');
-					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(c.m, c.label)); }
-				}
-			}
-
-			if (results.length > 0) return results;
-		}
-
-		// Phase 3 — month prefix: 7-date window in the nearest matching month.
-		// @jun → Jun 2–8 (current month from today); @jul → Jul 1–7; @june9 → Jun 9–15.
-		// Ambiguous prefix (@j, @ju) resolves to the nearest upcoming month.
-		{
-			const monthMatch = q.match(/^([a-z]+)(\d*)$/);
-			if (monthMatch) {
-				const monthPrefix = monthMatch[1]!;
-				const dayStr = monthMatch[2]!;
-				const monthNames = moment.months().map((n) => n.toLowerCase());
-				const candidates = monthNames
-					.map((name, idx) => ({ name, idx }))
-					.filter((m) => m.name.startsWith(monthPrefix));
-
-				if (candidates.length > 0) {
-					const upcoming = candidates.map(({ idx }) => {
-						let start = today.clone().month(idx).date(1).startOf('day');
-						if (idx === today.month()) start = today.clone();
-						else if (start.isBefore(today)) start = start.clone().add(1, 'years');
-						return { idx, start };
-					});
-					upcoming.sort((a, b) => a.start.valueOf() - b.start.valueOf());
-					const { idx: chosenIdx, start } = upcoming[0]!;
-
-					let windowStart = start.clone();
-					if (dayStr) {
-						const dayNum = parseInt(dayStr);
-						const shifted = today.clone().month(chosenIdx).date(dayNum).startOf('day');
-						if (shifted.isValid() && shifted.month() === chosenIdx)
-							windowStart = shifted.isBefore(today) ? today.clone() : shifted;
-					}
-
-					const results: DateSuggestion[] = [];
-					const cursor = windowStart.clone();
-					while (results.length < 7) {
-						const k = cursor.format('YYYY-MM-DD');
-						if (!seen.has(k)) {
-							seen.add(k);
-							results.push(toSuggestion(cursor.clone()));
-						}
-						cursor.add(1, 'days');
-					}
-					if (results.length > 0) return results;
-				}
-			}
-		}
-
-		// Phase 4 — @this / @next / @last
-		// @this → remaining days of current week (from today), padded with 'this week'/'this month' if < 7
-		// @next → all 7 days of next week; @next mo → next monday + next month
-		// @last → all 7 days of last week (previous Mon–Sun, always past)
-		// Filters to entries whose label starts with the query as user types.
-		{
-			const keyword = q.split(' ')[0]!; // 'this' | 'next' | 'last'
-			if (keyword === 'this' || keyword === 'next' || keyword === 'last') {
-				const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
-				const entries: { label: string; m: MomentInstance }[] = [];
-
-				if (keyword === 'this') {
-					// Remaining days of the current isoWeek starting from today (Mon=0…Sun=6)
-					const weekStart = today.clone().startOf('isoWeek');
-					for (let i = 0; i < 7; i++) {
-						const m = weekStart.clone().add(i, 'days');
-						if (!m.isBefore(today)) entries.push({ label: `this ${DAYS[i]}`, m });
-					}
-					// Pad with named periods if fewer than 7 weekdays remain
-					if (entries.length < 7) {
-						entries.push({ label: 'this week',  m: today.clone().startOf('isoWeek') });
-						entries.push({ label: 'this month', m: today.clone().startOf('month') });
-					}
-				} else if (keyword === 'next') {
-					for (const day of DAYS) entries.push({ label: `next ${day}`, m: parseDate(`next ${day}`) });
-					entries.push({ label: 'next week',  m: parseDate('next week') });
-					entries.push({ label: 'next month', m: parseDate('next month') });
-				} else {
-					// last — full previous Mon–Sun block
-					const lastMonday = today.clone().subtract(1, 'weeks').startOf('isoWeek');
-					for (let i = 0; i < 7; i++) entries.push({ label: `last ${DAYS[i]}`, m: lastMonday.clone().add(i, 'days') });
-					entries.push({ label: 'last week',  m: lastMonday.clone() });
-					entries.push({ label: 'last month', m: today.clone().subtract(1, 'months').startOf('month') });
-				}
-
-				const results = entries
-					.filter(e => e.label.startsWith(q))
-					.filter(e => { const k = e.m.format('YYYY-MM-DD'); return seen.has(k) ? false : (seen.add(k), true); })
-					.map(e => toSuggestion(e.m, e.label));
-
-				if (results.length > 0) return results;
-			}
-		}
-
-		// Phase 5 — numeric date entry in multiple formats.
-		{
-			// Helper: build a 7-day window from a start moment
-			const windowFrom = (start: MomentInstance): DateSuggestion[] => {
-				const results: DateSuggestion[] = [];
-				const cursor = start.clone();
-				while (results.length < 7) {
-					const k = cursor.format('YYYY-MM-DD');
-					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
-					cursor.add(1, 'days');
-				}
-				return results;
-			};
-
-			// 5a — compact YYYYMMDD (e.g. 20260602)
-			if (/^\d{8}$/.test(q)) {
-				const yr = parseInt(q.slice(0, 4));
-				const mo = parseInt(q.slice(4, 6)) - 1;
-				const dy = parseInt(q.slice(6, 8));
-				const m  = today.clone().year(yr).month(mo).date(dy).startOf('day');
-				if (m.isValid() && m.month() === mo) {
-					const results = windowFrom(m);
-					if (results.length > 0) return results;
-				}
-			}
-
-			// 5b — slash-separated: A/B[/Y] shown as US (M/D) and EU (D/M) labeled options
-			const slashMatch = q.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
-			if (slashMatch) {
-				const a    = parseInt(slashMatch[1]!);
-				const b    = parseInt(slashMatch[2]!);
-				const yStr = slashMatch[3];
-				const yr   = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
-
-				const tryDate = (month: number, day: number): MomentInstance | null => {
-					if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-					const m = today.clone().year(yr).month(month - 1).date(day).startOf('day');
-					return m.isValid() && m.month() === month - 1 ? m : null;
-				};
-
-				const usDate = tryDate(a, b);
-				const euDate = tryDate(b, a);
-				const usKey  = usDate?.format('YYYY-MM-DD');
-				const euKey  = euDate?.format('YYYY-MM-DD');
-				const results: DateSuggestion[] = [];
-				if (usDate && !seen.has(usKey!)) { seen.add(usKey!); results.push(toSuggestion(usDate, 'US')); }
-				if (euDate && euKey !== usKey && !seen.has(euKey!)) { seen.add(euKey!); results.push(toSuggestion(euDate, 'EU')); }
-				if (results.length > 0) return results;
-			}
-
-			// 5c — dash-separated ISO or partial year: @2, @2026, @2026-06, @2026-06-15
-			const isoMatch = q.match(/^(\d{1,4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/);
-			if (isoMatch) {
-				const yearStr  = isoMatch[1]!;
-				const monthStr = isoMatch[2];
-				const dayStr   = isoMatch[3];
-				const monthNum = monthStr !== undefined ? parseInt(monthStr) : null;
-				const dayNum   = dayStr   !== undefined ? parseInt(dayStr)   : null;
-				const monthOk  = monthNum === null || (monthNum >= 1 && monthNum <= 12);
-				const dayOk    = dayNum   === null || (dayNum   >= 1 && dayNum   <= 31);
-
-				if (monthOk && dayOk) {
-					const fullYear = yearStr.length === 4 ? parseInt(yearStr) : null;
-					const monthIdx = monthNum !== null ? monthNum - 1 : null;
-
-					let windowStart: MomentInstance;
-					if (fullYear !== null && monthIdx !== null && dayNum !== null) {
-						windowStart = today.clone().year(fullYear).month(monthIdx).date(dayNum).startOf('day');
-					} else if (fullYear !== null && monthIdx !== null) {
-						const isCurrent = fullYear === today.year() && monthIdx === today.month();
-						windowStart = isCurrent
-							? today.clone()
-							: today.clone().year(fullYear).month(monthIdx).date(1).startOf('day');
-					} else if (fullYear !== null) {
-						windowStart = fullYear === today.year()
-							? today.clone()
-							: today.clone().year(fullYear).month(0).date(1).startOf('day');
-					} else {
-						windowStart = today.clone(); // partial year — show today's window
-					}
-
-					if (windowStart.isValid()) {
-						const results = windowFrom(windowStart);
-						if (results.length > 0) return results;
-					}
-				}
-			}
-
-			// 5d — military format: D MMM [YYYY] (e.g. 2 JUN 2026, 02 jun, 15 march)
-			const milMatch = q.match(/^(\d{1,2})\s+([a-z]{3,9})(?:\s+(\d{2,4}))?$/);
-			if (milMatch) {
-				const day    = parseInt(milMatch[1]!);
-				const monStr = milMatch[2]!;
-				const yStr   = milMatch[3];
-				const yr     = yStr ? (yStr.length <= 2 ? 2000 + parseInt(yStr) : parseInt(yStr)) : today.year();
-
-				const monthNames = moment.months().map(n => n.toLowerCase());
-				const monthAbbs  = moment.monthsShort().map(n => n.toLowerCase());
-				let monthIdx = monthNames.indexOf(monStr);
-				if (monthIdx === -1) monthIdx = monthAbbs.indexOf(monStr);
-
-				if (monthIdx !== -1 && day >= 1 && day <= 31) {
-					const m = today.clone().year(yr).month(monthIdx).date(day).startOf('day');
-					if (m.isValid() && m.month() === monthIdx) {
-						const results = windowFrom(m);
-						if (results.length > 0) return results;
-					}
-				}
-			}
-		}
-
-		// Phase 6 — date math: @+N or @-N, optionally suffixed with d/w/m/y or full words.
-		// @+ / @- defaults to N=1. @+7 → all four unit options; @+7d / @+7 d / @+7 day / @+7 days → just days.
-		{
-			const mathMatch = q.match(/^([+-])(\d*)\s*([a-z]*)$/);
-			if (mathMatch) {
-				const sign    = mathMatch[1] === '+' ? 1 : -1;
-				const n       = mathMatch[2] ? parseInt(mathMatch[2]) : 1;
-				const rawUnit = mathMatch[3]!.toLowerCase();
-
-				type Unit = { key: 'days' | 'weeks' | 'months' | 'years'; suffix: string; label: string };
-				const ALL_UNITS: Unit[] = [
-					{ key: 'days',   suffix: 'd', label: 'days'   },
-					{ key: 'weeks',  suffix: 'w', label: 'weeks'  },
-					{ key: 'months', suffix: 'm', label: 'months' },
-					{ key: 'years',  suffix: 'y', label: 'years'  },
-				];
-
-				// Match by prefix of the full unit word (e.g. 'da' → days, 'wee' → weeks)
-				// or by single-char suffix. Unknown input → empty → falls through.
-				const units = rawUnit
-					? ALL_UNITS.filter(u => u.key.startsWith(rawUnit) || u.suffix === rawUnit)
-					: ALL_UNITS;
-				const results = units.map(u => {
-					const m = today.clone().add(sign * n, u.key);
-					return toSuggestion(m, `${sign > 0 ? '+' : '-'}${n} ${u.label}`);
-				});
-				if (results.length > 0) return results;
-			}
-		}
-
-		// Fallback: keep popup open while user keeps typing.
-		return presets.map(p => toSuggestion(p.m, p.label));
+		return computeDateSuggestions(context.query.trim(), this.plugin.settings);
 	}
+
+
 
 	renderSuggestion(value: DateSuggestion, el: HTMLElement): void {
 		if (value.placeholder) {
 			el.createEl('span', { text: '…', cls: 'date-list-suggest-placeholder' });
 			return;
 		}
-		if (value.label) {
-			el.createEl('span', { text: value.label, cls: 'date-list-suggest-label' });
-		}
-		el.createEl('span', { text: value.insert, cls: 'date-list-suggest-insert' });
-		el.createEl('span', { text: value.display, cls: 'date-list-suggest-display' });
+		const row = el.createEl('div', { cls: 'date-list-suggest-row' });
+		row.createEl('span', { text: value.label ?? '', cls: 'date-list-suggest-label' });
+		row.createEl('span', { text: value.insert, cls: 'date-list-suggest-insert' });
+		row.createEl('span', { text: value.display, cls: 'date-list-suggest-display' });
 	}
 
 	selectSuggestion(value: DateSuggestion, _evt: MouseEvent | KeyboardEvent): void {
@@ -2289,5 +2190,122 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 		const context = this.context;
 		if (!context) return;
 		context.editor.replaceRange(value.insert, context.start, context.end);
+	}
+}
+
+// -------------------------------------------------------------------
+// DateListSuggest — @@ inline trigger for inserting a date list
+// -------------------------------------------------------------------
+function computeListSuggestions(query: string, settings: DateListSettings): DateListSuggestion[] {
+	const fmt = settings.defaultFormat || 'YYYY-MM-DD';
+	const today = moment().startOf('day');
+
+	const formatLine = (m: MomentInstance): string => {
+		const formatted = m.format(fmt);
+		const insert = settings.defaultWikiLinks
+			? (settings.defaultAlias ? `[[${formatted}|${m.format(settings.defaultAlias)}]]` : `[[${formatted}]]`)
+			: formatted;
+		return settings.defaultPrefix + insert + settings.defaultPostfix;
+	};
+
+	const makeRange = (label: string, start: MomentInstance, end: MomentInstance): DateListSuggestion => {
+		const dates: string[] = [];
+		const cursor = start.clone().startOf('day');
+		const endDay = end.clone().startOf('day');
+		while (!cursor.isAfter(endDay)) {
+			dates.push(formatLine(cursor.clone()));
+			cursor.add(1, 'days');
+		}
+		const range = `${start.format('MMM D')} – ${end.format('MMM D')}`;
+		return { label, range, dates };
+	};
+
+	const LIST_PRESETS: DateListSuggestion[] = [
+		makeRange('this week',    today.clone().startOf('isoWeek'),                         today.clone().startOf('isoWeek').add(6, 'days')),
+		makeRange('next week',    today.clone().add(1, 'weeks').startOf('isoWeek'),         today.clone().add(1, 'weeks').startOf('isoWeek').add(6, 'days')),
+		makeRange('this month',   today.clone().startOf('month'),                           today.clone().endOf('month').startOf('day')),
+		makeRange('next month',   today.clone().add(1, 'months').startOf('month'),          today.clone().add(1, 'months').endOf('month').startOf('day')),
+		makeRange('next 7 days',  today.clone(),                                            today.clone().add(6, 'days')),
+		makeRange('next 30 days', today.clone(),                                            today.clone().add(29, 'days')),
+	];
+
+	const q = query.toLowerCase();
+	if (!q) return LIST_PRESETS;
+
+	// Filter static presets by label prefix
+	const filtered = LIST_PRESETS.filter(p => p.label.startsWith(q));
+	if (filtered.length > 0) return filtered;
+
+	// Typed date math: next N [d/w/m and prefixes]
+	const mathMatch = q.match(/^next\s+(\d+)\s*([a-z]*)$/);
+	if (mathMatch) {
+		const n       = parseInt(mathMatch[1]!);
+		const rawUnit = mathMatch[2]!.toLowerCase();
+		type Unit = { key: 'days' | 'weeks' | 'months'; label: string };
+		const ALL_UNITS: Unit[] = [
+			{ key: 'days',   label: 'days'   },
+			{ key: 'weeks',  label: 'weeks'  },
+			{ key: 'months', label: 'months' },
+		];
+		const units = rawUnit ? ALL_UNITS.filter(u => u.key.startsWith(rawUnit)) : ALL_UNITS;
+		const results = units.map(u => {
+			const end = u.key === 'days'
+				? today.clone().add(n - 1, 'days')
+				: u.key === 'weeks'
+					? today.clone().add(n * 7 - 1, 'days')
+					: today.clone().add(n, 'months').subtract(1, 'days');
+			return makeRange(`next ${n} ${u.label}`, today.clone(), end);
+		});
+		if (results.length > 0) return results;
+	}
+
+	return LIST_PRESETS;
+}
+
+class DateListSuggest extends EditorSuggest<DateListSuggestion> {
+	private plugin: DateListPlugin;
+
+	constructor(app: App, plugin: DateListPlugin) {
+		super(app);
+		this.plugin = plugin;
+		this.setInstructions([
+			{ command: 'type', purpose: 'filter ranges' },
+			{ command: '↵ ⇥', purpose: 'insert list' },
+			{ command: '↑↓', purpose: 'navigate' },
+		]);
+		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+			(this as any).suggestions.useSelectedItem(evt);
+			return true;
+		});
+	}
+
+	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
+		const trigger = (this.plugin.settings.suggestTrigger || '@').repeat(2);
+		const line = editor.getLine(cursor.line);
+		const before = line.slice(0, cursor.ch);
+		const triggerIdx = before.lastIndexOf(trigger);
+		if (triggerIdx === -1) return null;
+		if (triggerIdx > 0 && !/\s/.test(line[triggerIdx - 1]!)) return null;
+		const query = before.slice(triggerIdx + trigger.length);
+		if (query.length > 40) return null;
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
+	}
+
+	getSuggestions(context: EditorSuggestContext): DateListSuggestion[] {
+		return computeListSuggestions(context.query.trim(), this.plugin.settings);
+	}
+
+	renderSuggestion(value: DateListSuggestion, el: HTMLElement): void {
+		const row = el.createEl('div', { cls: 'date-list-list-suggest-row' });
+		row.createEl('span', { text: value.label, cls: 'date-list-list-suggest-label' });
+		row.createEl('span', { text: value.range, cls: 'date-list-list-suggest-range' });
+		row.createEl('span', { text: String(value.dates.length), cls: 'date-list-list-suggest-count' });
+	}
+
+	selectSuggestion(value: DateListSuggestion, _evt: MouseEvent | KeyboardEvent): void {
+		const context = this.context;
+		if (!context) return;
+		context.editor.replaceRange(value.dates.join('\n'), context.start, context.end);
 	}
 }

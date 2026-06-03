@@ -406,23 +406,38 @@ span.flatpickr-weekday {
 
 /* ── @ date suggest ──────────────────────────────────────────────── */
 
+.date-list-suggest-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	gap: 16px;
+}
+
 .date-list-suggest-label {
-	color: var(--text-muted);
+	flex: 0 0 80px;
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
 	font-size: var(--font-smaller);
-	min-width: 80px;
-	margin-right: 8px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .date-list-suggest-insert {
+	flex: 1;
 	font-family: var(--font-monospace);
 	font-size: var(--font-small);
-	flex: 1;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .date-list-suggest-display {
-	color: var(--text-muted);
+	flex: 0 0 auto;
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
 	font-size: var(--font-smaller);
-	margin-left: 12px;
+	white-space: nowrap;
 }
 
 .date-list-suggest-placeholder {
@@ -430,36 +445,63 @@ span.flatpickr-weekday {
 	font-style: italic;
 }
 
-/* ── Quick insert inline custom row ─────────────────────────────── */
+/* ── @@ date list suggest ────────────────────────────────────────── */
 
-.date-list-quick-custom-row {
-	cursor: default;
+.date-list-list-suggest-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	gap: 16px;
 }
 
-.date-list-quick-custom-row:focus-within {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+.date-list-list-suggest-label {
+	flex: 0 0 110px;
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
-.date-list-quick-custom-input {
+.date-list-list-suggest-range {
 	flex: 1;
-	min-width: 0;
-	background: transparent;
-	border: none;
-	outline: none;
-	color: inherit;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.date-list-list-suggest-count {
+	flex: 0 0 28px;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	color: var(--text-faint);
+	text-align: right;
+	white-space: nowrap;
+}
+
+/* ── Quick insert search input ───────────────────────────────────── */
+
+.date-list-quick-search {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	margin-bottom: 6px;
+	background: var(--background-modifier-form-field);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	color: var(--text-normal);
 	font-size: inherit;
 	font-family: inherit;
-	padding: 0;
-	cursor: text;
 }
 
-.date-list-quick-custom-input::placeholder {
+.date-list-quick-search:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
+.date-list-quick-search::placeholder {
 	color: var(--text-faint);
 	font-style: italic;
-}
-
-.date-list-quick-custom-row:focus-within .date-list-quick-custom-input::placeholder {
-	color: var(--text-on-accent);
-	opacity: 0.6;
 }
