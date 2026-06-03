@@ -1,4 +1,5 @@
 // todo
+// - improvement: add military date format to the configure command preset options (format page)
 // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
 import {
 	App,
@@ -2158,14 +2159,13 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
 		const trigger = this.plugin.settings.suggestTrigger || '@';
-		const line = editor.getLine(cursor.line);
-		const before = line.slice(0, cursor.ch);
-		const triggerIdx = before.lastIndexOf(trigger);
-		if (triggerIdx === -1) return null;
-		if (triggerIdx > 0 && !/\s/.test(line[triggerIdx - 1]!)) return null;
-		const query = before.slice(triggerIdx + trigger.length);
-		if (query.length > 40) return null;
-		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
+		const before = editor.getLine(cursor.line).slice(0, cursor.ch);
+		const e = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		// Require trigger at start or after whitespace; negative lookahead prevents firing on @@.
+		const match = new RegExp(`(^|\\s)(${e})(?!${e})(\\S{0,40})$`).exec(before);
+		if (!match) return null;
+		const triggerIdx = match.index + match[1]!.length;
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query: match[3]! };
 	}
 
 	getSuggestions(context: EditorSuggestContext): DateSuggestion[] {
@@ -2282,14 +2282,13 @@ class DateListSuggest extends EditorSuggest<DateListSuggestion> {
 
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
 		const trigger = this.plugin.settings.listSuggestTrigger || '@@';
-		const line = editor.getLine(cursor.line);
-		const before = line.slice(0, cursor.ch);
-		const triggerIdx = before.lastIndexOf(trigger);
-		if (triggerIdx === -1) return null;
-		if (triggerIdx > 0 && !/\s/.test(line[triggerIdx - 1]!)) return null;
-		const query = before.slice(triggerIdx + trigger.length);
-		if (query.length > 40) return null;
-		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
+		const before = editor.getLine(cursor.line).slice(0, cursor.ch);
+		const e = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		// Require trigger at start or after whitespace; query must be non-whitespace up to cursor.
+		const match = new RegExp(`(^|\\s)(${e})(\\S{0,40})$`).exec(before);
+		if (!match) return null;
+		const triggerIdx = match.index + match[1]!.length;
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query: match[3]! };
 	}
 
 	getSuggestions(context: EditorSuggestContext): DateListSuggestion[] {
