@@ -1,7 +1,7 @@
 {
 	"id": "date-list",
 	"name": "Date List",
-	"version": "1.2.1",
+	"version": "1.2.2",
 	"minAppVersion": "1.0.0",
 	"description": "Returns a list of dates according to the conditions you supply.",
 	"author": "Sebastien",
