@@ -14,7 +14,7 @@ In the plugin settings, you can customize your default preferences. For example,
 
 Type `@` (or your configured trigger) anywhere in a note to open a predictive date suggestion popup. The suggestions update live as you type — press **↵** or **⇥** to insert, **↑↓** to navigate.
 
-![Inline date suggest](https://github.com/lumargh/obsidian-date-list/blob/master/assets/inline-insert.png)
+![Inline date suggest](https://github.com/lumargh/obsidian-date-list/blob/master/assets/inline-date.png)
 
 The popup is predictive based on what you type after `@`:
 
@@ -36,10 +36,13 @@ The popup is predictive based on what you type after `@`:
 | `@+7d` | 7 days from today (`d`, `w`, `m`, `y` or full words like `days`) |
 | `@+` / `@-` | Tomorrow / yesterday |
 
+![alt text](assets/inline-math-2.png)
+![alt text](assets/inline-math.png)
+
 ---
 
 ### Inline `@@` date list autosuggest
-
+![inline list](assets/inline-list.png)
 Type `@@` (or your configured list trigger) to open a range picker that inserts a full list of dates at the cursor. Press **↵** or **⇥** to insert, **↑↓** to navigate.
 
 Six presets appear immediately:
