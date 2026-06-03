@@ -1,4 +1,5 @@
 // todo
+// - new feature: command: insert date using calednar popup. also add key trigger (@@@?)
 // - improvement: add military date format to the configure command preset options (format page)
 // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
 import {
@@ -2257,6 +2258,27 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 			return makeRange(`next ${n} ${u.label}`, today.clone(), end);
 		});
 		if (results.length > 0) return results;
+	}
+
+	// Typed start date → 7 / 14 / end-of-month range options
+	{
+		// Normalize "jul1" → "jul 1" so parseDate can handle it
+		const normalized = q.replace(/^([a-z]+)(\d)/, '$1 $2');
+		const startM = parseDate(normalized);
+		if (startM.isValid()) {
+			const start     = startM.clone().startOf('day');
+			const end7      = start.clone().add(6,  'days');
+			const end14     = start.clone().add(13, 'days');
+			const endMo     = start.clone().endOf('month').startOf('day');
+			const daysInMo  = start.daysInMonth();
+			const endFullMo = start.clone().add(daysInMo - 1, 'days');
+			return [
+				makeRange('7 days',                   start, end7),
+				makeRange('14 days',                  start, end14),
+				makeRange('end of month',             start, endMo),
+				makeRange(`${daysInMo} days`,         start, endFullMo),
+			];
+		}
 	}
 
 	return LIST_PRESETS;
