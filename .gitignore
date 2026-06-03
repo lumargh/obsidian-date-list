@@ -3,3 +3,4 @@ data.json
 *.js.map
 .DS_Store
 **/.DS_Store
+main.css

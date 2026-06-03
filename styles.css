@@ -261,12 +261,14 @@
 }
 
 .flatpickr-calendar.date-list-cal-floating {
-	position: fixed !important;
+	/* stylelint-disable-next-line declaration-no-important */
+	position: fixed !important; /* overrides flatpickr inline position:absolute */
 	z-index: 99999;
 }
 
 .flatpickr-calendar.date-list-cal-hidden {
-	display: none !important;
+	/* stylelint-disable-next-line declaration-no-important */
+	display: none !important; /* overrides flatpickr JS display manipulation */
 }
 
 .date-list-settings-token-grid {
@@ -307,6 +309,7 @@
 }
 
 .date-list-hidden {
+	/* stylelint-disable-next-line declaration-no-important */
 	display: none !important;
 }
 
