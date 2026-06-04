@@ -1,7 +1,8 @@
 // todo
-// - new feature: command: insert date using calednar popup. also add key trigger (@@@?)
+// - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
+// - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
-// - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]:
+// // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
 import {
 	App,
 	Editor,
@@ -1887,9 +1888,10 @@ function computeDateSuggestions(query: string, settings: DateListSettings): Date
 
 	const toSuggestion = (m: MomentInstance, label?: string): DateSuggestion => {
 		const formatted = m.format(fmt);
-		const insert = settings.defaultWikiLinks
+		const linked = settings.defaultWikiLinks
 			? (settings.defaultAlias ? `[[${formatted}|${m.format(settings.defaultAlias)}]]` : `[[${formatted}]]`)
 			: formatted;
+		const insert = settings.defaultPrefix + linked + settings.defaultPostfix;
 		return { insert, display: m.format('ddd, MMM D, YYYY'), label, m };
 	};
 
