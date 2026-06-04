@@ -2219,7 +2219,55 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 			dates.push(formatLine(cursor.clone()));
 			cursor.add(1, 'days');
 		}
-		const range = `${start.format('MMM D')} – ${end.format('MMM D')}`;
+		const startFmt = start.year() !== end.year() ? start.format('MMM D, YYYY') : start.format('MMM D');
+		const range = `${startFmt} – ${end.format('MMM D, YYYY')}`;
+		return { label, range, dates };
+	};
+
+	const makeWeekdayList = (label: string, weekdayIdx: number, count: number): DateListSuggestion => {
+		const moments: MomentInstance[] = [];
+		const cursor = today.clone().add(1, 'days');
+		while (cursor.day() !== weekdayIdx) cursor.add(1, 'days');
+		for (let i = 0; i < count; i++) { moments.push(cursor.clone()); cursor.add(7, 'days'); }
+		const dates = moments.map(m => formatLine(m));
+		if (moments.length === 0) return { label, range: '', dates: [] };
+		const first = moments[0]!;
+		const last  = moments[moments.length - 1]!;
+		const startFmt = first.year() !== last.year() ? first.format('MMM D, YYYY') : first.format('MMM D');
+		const range = count === 1 ? first.format('MMM D, YYYY') : `${startFmt} – ${last.format('MMM D, YYYY')}`;
+		return { label, range, dates };
+	};
+
+	const makeWeekendsList = (label: string, count: number): DateListSuggestion => {
+		const cursor = today.clone().add(1, 'days');
+		while (cursor.day() !== 6) cursor.add(1, 'days'); // advance to next Saturday
+		const first = cursor.clone();
+		const dates: string[] = [];
+		let last = cursor.clone();
+		for (let i = 0; i < count; i++) {
+			dates.push(formatLine(cursor.clone())); // Saturday
+			cursor.add(1, 'days');
+			dates.push(formatLine(cursor.clone())); // Sunday
+			last = cursor.clone();
+			cursor.add(6, 'days'); // jump to next Saturday
+		}
+		const startFmt = first.year() !== last.year() ? first.format('MMM D, YYYY') : first.format('MMM D');
+		return { label, range: `${startFmt} – ${last.format('MMM D, YYYY')}`, dates };
+	};
+
+	const makeConsecutiveWeekdays = (label: string, count: number): DateListSuggestion => {
+		const moments: MomentInstance[] = [];
+		const cursor = today.clone().add(1, 'days');
+		while (moments.length < count) {
+			if (cursor.day() >= 1 && cursor.day() <= 5) moments.push(cursor.clone());
+			cursor.add(1, 'days');
+		}
+		const dates = moments.map(m => formatLine(m));
+		if (moments.length === 0) return { label, range: '', dates: [] };
+		const first = moments[0]!;
+		const last  = moments[moments.length - 1]!;
+		const startFmt = first.year() !== last.year() ? first.format('MMM D, YYYY') : first.format('MMM D');
+		const range = count === 1 ? first.format('MMM D, YYYY') : `${startFmt} – ${last.format('MMM D, YYYY')}`;
 		return { label, range, dates };
 	};
 
@@ -2235,30 +2283,69 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 	const q = query.toLowerCase();
 	if (!q) return LIST_PRESETS;
 
-	// Filter static presets by label prefix
-	const filtered = LIST_PRESETS.filter(p => p.label.startsWith(q));
-	if (filtered.length > 0) return filtered;
+	// Phases 1–3: presets, date-math, and weekday patterns combined so they coexist in results
+	{
+		const results: DateListSuggestion[] = [];
 
-	// Typed date math: next N [d/w/m and prefixes]
-	const mathMatch = q.match(/^next\s+(\d+)\s*([a-z]*)$/);
-	if (mathMatch) {
-		const n       = parseInt(mathMatch[1]!);
-		const rawUnit = mathMatch[2]!.toLowerCase();
-		type Unit = { key: 'days' | 'weeks' | 'months'; label: string };
-		const ALL_UNITS: Unit[] = [
-			{ key: 'days',   label: 'days'   },
-			{ key: 'weeks',  label: 'weeks'  },
-			{ key: 'months', label: 'months' },
-		];
-		const units = rawUnit ? ALL_UNITS.filter(u => u.key.startsWith(rawUnit)) : ALL_UNITS;
-		const results = units.map(u => {
-			const end = u.key === 'days'
-				? today.clone().add(n - 1, 'days')
-				: u.key === 'weeks'
-					? today.clone().add(n * 7 - 1, 'days')
-					: today.clone().add(n, 'months').subtract(1, 'days');
-			return makeRange(`next ${n} ${u.label}`, today.clone(), end);
-		});
+		// Static presets by label prefix
+		for (const p of LIST_PRESETS) {
+			if (p.label.startsWith(q)) results.push(p);
+		}
+
+		// next N [days/weeks/months]
+		const mathMatch = q.match(/^next\s+(\d+)\s*([a-z]*)$/);
+		if (mathMatch) {
+			const n       = parseInt(mathMatch[1]!);
+			const rawUnit = mathMatch[2]!.toLowerCase();
+			type Unit = { key: 'days' | 'weeks' | 'months'; label: string };
+			const ALL_UNITS: Unit[] = [
+				{ key: 'days',   label: 'days'   },
+				{ key: 'weeks',  label: 'weeks'  },
+				{ key: 'months', label: 'months' },
+			];
+			const units = rawUnit ? ALL_UNITS.filter(u => u.key.startsWith(rawUnit)) : ALL_UNITS;
+			for (const u of units) {
+				const end = u.key === 'days'
+					? today.clone().add(n - 1, 'days')
+					: u.key === 'weeks'
+						? today.clone().add(n * 7 - 1, 'days')
+						: today.clone().add(n, 'months').subtract(1, 'days');
+				const label = `next ${n} ${u.label}`;
+				if (!results.some(r => r.label === label)) results.push(makeRange(label, today.clone(), end));
+			}
+		}
+
+		// next [N|word-number] <weekday>[s]  e.g. "next monday", "next 3 fridays", "next two tuesdays"
+		const WORD_NUMBERS: Record<string, number> = {
+			one: 1, two: 2, three: 3, four: 4, five: 5,
+			six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+		};
+		const WD_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+		const wdPat = q.match(/^next\s+(?:(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?([a-z]+)$/);
+		if (wdPat) {
+			const countRaw = wdPat[1];
+			const dayQuery = wdPat[2]!;
+			const stripped = dayQuery.endsWith('s') && dayQuery.length > 1 ? dayQuery.slice(0, -1) : dayQuery;
+			const count    = countRaw === undefined ? 1
+				: (WORD_NUMBERS[countRaw] !== undefined ? WORD_NUMBERS[countRaw]! : parseInt(countRaw));
+			if (!isNaN(count) && count >= 1) {
+				if ('weekend'.startsWith(dayQuery) || 'weekend'.startsWith(stripped)) {
+					const label = count === 1 ? 'next weekend' : `next ${count} weekends`;
+					if (!results.some(r => r.label === label)) results.push(makeWeekendsList(label, count));
+				}
+				if ('weekday'.startsWith(dayQuery) || 'weekday'.startsWith(stripped)) {
+					const label = count === 1 ? 'next weekday' : `next ${count} weekdays`;
+					if (!results.some(r => r.label === label)) results.push(makeConsecutiveWeekdays(label, count));
+				}
+				const matching = WD_NAMES.map((name, idx) => ({ name, idx }))
+					.filter(w => w.name.startsWith(dayQuery) || w.name.startsWith(stripped));
+				for (const w of matching) {
+					const label = count === 1 ? `next ${w.name}` : `next ${count} ${w.name}s`;
+					if (!results.some(r => r.label === label)) results.push(makeWeekdayList(label, w.idx, count));
+				}
+			}
+		}
+
 		if (results.length > 0) return results;
 	}
 
@@ -2307,12 +2394,19 @@ class DateListSuggest extends EditorSuggest<DateListSuggestion> {
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
 		const trigger = this.plugin.settings.listSuggestTrigger || '@@';
 		const before = editor.getLine(cursor.line).slice(0, cursor.ch);
-		const e = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		// Require trigger at start or after whitespace; query must be non-whitespace up to cursor.
-		const match = new RegExp(`(^|\\s)(${e})(\\S{0,40})$`).exec(before);
-		if (!match) return null;
-		const triggerIdx = match.index + match[1]!.length;
-		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query: match[3]! };
+		// Find the last valid trigger occurrence (at line start or after whitespace).
+		// Spaces are allowed in the query so we can't use \S in the regex.
+		let triggerIdx = -1;
+		let pos = 0;
+		while (pos <= before.length - trigger.length) {
+			const idx = before.indexOf(trigger, pos);
+			if (idx === -1) break;
+			if (idx === 0 || /\s/.test(before[idx - 1]!)) triggerIdx = idx;
+			pos = idx + 1;
+		}
+		if (triggerIdx === -1) return null;
+		const query = before.slice(triggerIdx + trigger.length);
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
 	}
 
 	getSuggestions(context: EditorSuggestContext): DateListSuggestion[] {
@@ -2323,7 +2417,7 @@ class DateListSuggest extends EditorSuggest<DateListSuggestion> {
 		const row = el.createEl('div', { cls: 'date-list-list-suggest-row' });
 		row.createEl('span', { text: value.label, cls: 'date-list-list-suggest-label' });
 		row.createEl('span', { text: value.range, cls: 'date-list-list-suggest-range' });
-		row.createEl('span', { text: String(value.dates.length), cls: 'date-list-list-suggest-count' });
+		row.createEl('span', { text: `${value.dates.length}d`, cls: 'date-list-list-suggest-count' });
 	}
 
 	selectSuggestion(value: DateListSuggestion, _evt: MouseEvent | KeyboardEvent): void {
