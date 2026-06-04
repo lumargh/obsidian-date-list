@@ -1,8 +1,10 @@
 // todo
+// - urgent -- Fix date list plugin bug — @ trigger is not firing when it's not the first character in a line. More specifically, when the @ is not the fist character, the user must type @ then space then backspace, which finally triggers the dropdown. However, if the user types anything after that, the dropdown disappears again.
+// - delete whatever commit is making it so that all of those random contributors are showing up in my GitHub account for this plugin.
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
-// // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
+// - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
 import {
 	App,
 	Editor,
@@ -2163,12 +2165,22 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 	onTrigger(cursor: { line: number; ch: number }, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
 		const trigger = this.plugin.settings.suggestTrigger || '@';
 		const before = editor.getLine(cursor.line).slice(0, cursor.ch);
-		const e = trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		// Require trigger at start or after whitespace; negative lookahead prevents firing on @@.
-		const match = new RegExp(`(^|\\s)(${e})(?!${e})(\\S{0,40})$`).exec(before);
-		if (!match) return null;
-		const triggerIdx = match.index + match[1]!.length;
-		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query: match[3]! };
+		// Find the last valid trigger (at line start or after whitespace);
+		// skip positions where trigger is immediately followed by another trigger char (avoids @@).
+		let triggerIdx = -1;
+		let pos = 0;
+		while (pos <= before.length - trigger.length) {
+			const idx = before.indexOf(trigger, pos);
+			if (idx === -1) break;
+			const prevOk = idx === 0 || /\s/.test(before[idx - 1]!);
+			const notDouble = before[idx + trigger.length] !== trigger[0];
+			if (prevOk && notDouble) triggerIdx = idx;
+			pos = idx + 1;
+		}
+		if (triggerIdx === -1) return null;
+		const query = before.slice(triggerIdx + trigger.length);
+		if (query.length > 40) return null;
+		return { start: { line: cursor.line, ch: triggerIdx }, end: cursor, query };
 	}
 
 	getSuggestions(context: EditorSuggestContext): DateSuggestion[] {
