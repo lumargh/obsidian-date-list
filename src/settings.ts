@@ -1,6 +1,4 @@
-import { App, PluginSettingTab, Setting, moment as _m } from 'obsidian';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
-const moment = _m as any;
+import { App, PluginSettingTab, Setting, moment } from 'obsidian';
 import DateListPlugin from './main';
 
 export interface DateListSettings {
@@ -35,7 +33,6 @@ export class DateListSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName('Settings').setHeading();
 
 		new Setting(containerEl)
 			.setName('Inline date trigger')
@@ -72,13 +69,10 @@ export class DateListSettingTab extends PluginSettingTab {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
 					cls: 'date-list-settings-preview',
-					// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
 					text: this.plugin.settings.defaultFormat ? moment().format(this.plugin.settings.defaultFormat) : '',
 				});
 				fmtPreview.toggle(!!this.plugin.settings.defaultFormat);
 				text
-					// eslint-disable-next-line obsidianmd/ui/sentence-case
-					.setPlaceholder('YYYY-MM-DD')
 					.setValue(this.plugin.settings.defaultFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultFormat = value;
@@ -145,7 +139,7 @@ export class DateListSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl).setName('Date Guide').setHeading();
+		new Setting(containerEl).setName('Date guide').setHeading();
 
 		const tokenGroups: { label: string; tokens: [string, string, string][] }[] = [
 			{

@@ -1222,7 +1222,7 @@ class QuickInsertModal extends Modal {
 				btn.addEventListener('mouseleave', () => renderPreview(previewEl, this.blankState));
 				btn.addEventListener('focus',      () => renderPreview(previewEl, this.buildState(s.m)));
 				btn.addEventListener('blur',       () => renderPreview(previewEl, this.blankState));
-				return btn as HTMLButtonElement;
+				return btn;
 			});
 		};
 
@@ -2154,8 +2154,7 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 			{ command: '↑↓', purpose: 'navigate' },
 		]);
 		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-			(this as any).suggestions.useSelectedItem(evt);
+			(this as unknown as { suggestions: { useSelectedItem(evt: KeyboardEvent): void } }).suggestions.useSelectedItem(evt);
 			return true;
 		});
 	}
@@ -2337,7 +2336,7 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 			const dayQuery = wdPat[2]!;
 			const stripped = dayQuery.endsWith('s') && dayQuery.length > 1 ? dayQuery.slice(0, -1) : dayQuery;
 			const count    = countRaw === undefined ? 1
-				: (WORD_NUMBERS[countRaw] !== undefined ? WORD_NUMBERS[countRaw]! : parseInt(countRaw));
+				: (WORD_NUMBERS[countRaw] !== undefined ? WORD_NUMBERS[countRaw] : parseInt(countRaw));
 			if (!isNaN(count) && count >= 1) {
 				if ('weekend'.startsWith(dayQuery) || 'weekend'.startsWith(stripped)) {
 					const label = count === 1 ? 'next weekend' : `next ${count} weekends`;
@@ -2395,8 +2394,7 @@ class DateListSuggest extends EditorSuggest<DateListSuggestion> {
 			{ command: '↑↓', purpose: 'navigate' },
 		]);
 		this.scope.register([], 'Tab', (evt: KeyboardEvent) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-			(this as any).suggestions.useSelectedItem(evt);
+			(this as unknown as { suggestions: { useSelectedItem(evt: KeyboardEvent): void } }).suggestions.useSelectedItem(evt);
 			return true;
 		});
 	}
