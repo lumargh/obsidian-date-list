@@ -134,7 +134,7 @@ All screens support full keyboard control:
 
 ## Related plugins
 
-If you like Date List, you might also like [Calendar List](https://github.com/lumargh/obsidian-calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes.
+If you like Date List, you might also like [Calendar List](https://community.obsidian.md/plugins/calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes.
 
 ## Feedback and contributions
 
