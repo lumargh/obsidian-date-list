@@ -1,14 +1,8 @@
 # Date List
 
-An Obsidian plugin for inserting single dates and formatted date lists, with a live-preview wizard and inline autocomplete.
+An Obsidian plugin for inserting single dates and formatted date lists, with a live-preview wizard and inline autocomplete. This plugin is actively being developed, so create a GitHub issue if you have any trouble.
 
 ## Features
-
-Every time you enter a date, you can choose from a default format or customize it on the fly. The plugin supports wiki links, aliases, and any date format you can think of.
-
-In the plugin settings, you can customize your default preferences. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias. 
-
-![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
 
 ### Inline `@` autosuggest
 
@@ -111,6 +105,12 @@ The **Date List: Filter dates** command allows you to find all instances of a sp
 ---
 
 ### Configure Date List
+
+Every time you enter a date, you can choose from a default format or customize it on the fly. The plugin supports wiki links, aliases, and any date format you can think of.
+
+In the plugin settings, you can customize your default preferences. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias. 
+
+![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
 
 In the plugin settings, you can customize your default date format preferences and trigger characters. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias.
 
