@@ -1,6 +1,4 @@
 // todo
-// - urgent -- Fix date list plugin bug — @ trigger is not firing when it's not the first character in a line. More specifically, when the @ is not the fist character, the user must type @ then space then backspace, which finally triggers the dropdown. However, if the user types anything after that, the dropdown disappears again.
-// - delete whatever commit is making it so that all of those random contributors are showing up in my GitHub account for this plugin.
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
