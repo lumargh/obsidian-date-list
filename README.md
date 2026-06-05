@@ -136,7 +136,7 @@ All screens support full keyboard control:
 
 ### Various Complements
 
-The [Various Complements](https://github.com/tadashi-aikawa/obsidian-various-complements-plugin) plugin conflicts with the `@` and `@@` inline triggers. After you type a second character, Various Complements fires its own suggestion popup and dismisses the date-list popup. Backspacing to one character restores it because Various Complements requires at least two characters to activate.
+The [Various Complements](https://github.com/tadashi-aikawa/obsidian-various-complements-plugin) plugin conflicts with the `@` and `@@` inline triggers. After you type a second character, Various Complements fires its own suggestion popup and dismisses the date-list popup. 
 
 **Workaround:** In Various Complements settings, increase *Min number of characters for completion* to 3 or higher. This prevents it from triggering while you are still typing a short date expression.
 
