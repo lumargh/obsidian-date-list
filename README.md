@@ -132,6 +132,16 @@ All screens support full keyboard control:
 - **Escape / ←** — go back
 - **OK button** — available on every screen for mouse-only users
 
+## Known conflicts
+
+### Various Complements
+
+The [Various Complements](https://github.com/tadashi-aikawa/obsidian-various-complements-plugin) plugin conflicts with the `@` and `@@` inline triggers. After you type a second character, Various Complements fires its own suggestion popup and dismisses the date-list popup. Backspacing to one character restores it because Various Complements requires at least two characters to activate.
+
+**Workaround:** In Various Complements settings, increase *Min number of characters for completion* to 3 or higher. This prevents it from triggering while you are still typing a short date expression.
+
+---
+
 ## Related plugins
 
 If you like Date List, you might also like [Calendar List](https://community.obsidian.md/plugins/calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes.
