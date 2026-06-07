@@ -9,6 +9,7 @@ export interface DateListSettings {
 	defaultPostfix: string;
 	suggestTrigger: string;
 	listSuggestTrigger: string;
+	firstDayOfWeek: number;
 }
 
 export const DEFAULT_SETTINGS: DateListSettings = {
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: DateListSettings = {
 	defaultPostfix: '',
 	suggestTrigger: '@',
 	listSuggestTrigger: '@@',
+	firstDayOfWeek: 1,
 };
 
 export class DateListSettingTab extends PluginSettingTab {
@@ -63,8 +65,20 @@ export class DateListSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Default date format')
-			.setDesc('Format string shown as the first option in the format picker. To add normal text, wrap the word in [ ]')
+			.setName('First day of week')
+			.setDesc("Determines the bounds of the 'This week' and 'Next week' ranges.")
+			.addDropdown(dropdown => dropdown
+				.addOptions({ '0': 'Sunday', '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday', '4': 'Thursday', '5': 'Friday', '6': 'Saturday' })
+				.setValue(String(this.plugin.settings.firstDayOfWeek))
+				.onChange(async (value) => {
+					this.plugin.settings.firstDayOfWeek = Number(value);
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName('Date format')
+			.setDesc('Format string shown as the first option in the format picker. To add normal text, wrap the word in [ ].')
 			.addText((text) => {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const fmtPreview = text.inputEl.parentElement!.createEl('div', {
@@ -83,8 +97,8 @@ export class DateListSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Default wiki links')
-			.setDesc('Wrap dates in [[ ]] by default')
+			.setName('Wikilinks')
+			.setDesc('Wrap dates in [[ ]].')
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.defaultWikiLinks)
@@ -95,8 +109,8 @@ export class DateListSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Default alias format')
-			.setDesc('Format for the wiki link alias. Leave blank for no alias.')
+			.setName('Alias format')
+			.setDesc('Format for the wikilink alias.')
 			.addText((text) => {
 				text.inputEl.parentElement!.addClass('date-list-settings-has-preview');
 				const aliasPreview = text.inputEl.parentElement!.createEl('div', {
@@ -114,11 +128,11 @@ export class DateListSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Default prefix')
-			.setDesc('Text to prepend to each date by default (e.g. - or - [ ] )')
+			.setName('Prefix')
+			.setDesc('Text to prepend to each date by default.')
 			.addText((text) =>
 				text
-					.setPlaceholder('None')
+					.setPlaceholder('e.g. - or - [ ]')
 					.setValue(this.plugin.settings.defaultPrefix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPrefix = value;
@@ -127,11 +141,11 @@ export class DateListSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Default postfix')
-			.setDesc('Text to append after each date by default (e.g. - or —)')
+			.setName('Postfix')
+			.setDesc('Text to append after each date by default.')
 			.addText((text) =>
 				text
-					.setPlaceholder('None')
+					.setPlaceholder('e.g. - or —')
 					.setValue(this.plugin.settings.defaultPostfix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPostfix = value;

@@ -1,8 +1,11 @@
 // todo
+// - new feature: command: insert calendar (plain text) for month. e.g. /insert-calendar > dropdown to select this month, next month, and select. type to populate dropdown, e.g. dec. Inserts table where each cell is a day, linked to the daily not given the user's date format.
+// - settings: add format preview like in calendar-list
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
 // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
+
 import {
 	App,
 	Editor,
@@ -28,6 +31,16 @@ type MomentInstance = ReturnType<typeof _m.utc>;
 type MomentFactory = { (): MomentInstance; (inp: string, fmt?: string | string[]): MomentInstance } & typeof _m;
 const moment = _m as unknown as MomentFactory;
 type DurationUnit = 'days' | 'weeks' | 'months' | 'years';
+
+// Week boundaries computed manually (rather than moment's locale-dependent isoWeek)
+// so they honor the user's configured first day of week without mutating global locale.
+function startOfWeek(m: MomentInstance, firstDayOfWeek: number): MomentInstance {
+	const offset = (m.day() - firstDayOfWeek + 7) % 7;
+	return m.clone().startOf('day').subtract(offset, 'days');
+}
+function endOfWeek(m: MomentInstance, firstDayOfWeek: number): MomentInstance {
+	return startOfWeek(m, firstDayOfWeek).add(6, 'days'); // start-of-day of last weekday
+}
 
 // Sentinel returned by any modal dismissed without a confirmed selection.
 const BACK = Symbol('back');
@@ -180,7 +193,7 @@ const FMT_CATS: Record<string, string> = {
 // -------------------------------------------------------------------
 // Date parser
 // -------------------------------------------------------------------
-function parseDate(input: string) {
+function parseDate(input: string, firstDayOfWeek: number = 1) {
 	const s = input.trim().toLowerCase();
 	if (s === 'today') return moment();
 	if (s === 'tomorrow') return moment().add(1, 'days');
@@ -201,7 +214,7 @@ function parseDate(input: string) {
 			const d = moment().day(idx);
 			return d.isSameOrBefore(moment(), 'day') ? d.add(7, 'days') : d;
 		}
-		if (word === 'week')  return moment().add(1, 'weeks').startOf('isoWeek');
+		if (word === 'week')  return startOfWeek(moment().add(1, 'weeks'), firstDayOfWeek);
 		if (word === 'month') return moment().add(1, 'months').startOf('month');
 		if (word === 'year')  return moment().add(1, 'years').startOf('year');
 	}
@@ -215,7 +228,7 @@ function parseDate(input: string) {
 			const d = moment().day(idx);
 			return d.isSameOrAfter(moment(), 'day') ? d.subtract(7, 'days') : d;
 		}
-		if (word === 'week')  return moment().subtract(1, 'weeks').startOf('isoWeek');
+		if (word === 'week')  return startOfWeek(moment().subtract(1, 'weeks'), firstDayOfWeek);
 		if (word === 'month') return moment().subtract(1, 'months').startOf('month');
 		if (word === 'year')  return moment().subtract(1, 'years').startOf('year');
 	}
@@ -223,7 +236,7 @@ function parseDate(input: string) {
 	// this week/month/year
 	const thisWord = s.match(/^this (week|month|year)$/);
 	if (thisWord) {
-		if (thisWord[1] === 'week')  return moment().startOf('isoWeek');
+		if (thisWord[1] === 'week')  return startOfWeek(moment(), firstDayOfWeek);
 		if (thisWord[1] === 'month') return moment().startOf('month');
 		if (thisWord[1] === 'year')  return moment().startOf('year');
 	}
@@ -721,9 +734,10 @@ export default class DateListPlugin extends Plugin {
 				let endMoment   = startMoment.clone().add(1, 'days');
 
 				const now = moment();
+				const fdow = this.settings.firstDayOfWeek;
 				const rangePresets = [
-					{ name: 'This week',   label: `${now.clone().startOf('isoWeek').format('MMM D')} – ${now.clone().endOf('isoWeek').startOf('day').format('MMM D')}`,                                 start: now.clone().startOf('isoWeek'),             end: now.clone().endOf('isoWeek').startOf('day') },
-					{ name: 'Next week',   label: `${now.clone().add(1,'weeks').startOf('isoWeek').format('MMM D')} – ${now.clone().add(1,'weeks').endOf('isoWeek').startOf('day').format('MMM D')}`,   start: now.clone().add(1,'weeks').startOf('isoWeek'), end: now.clone().add(1,'weeks').endOf('isoWeek').startOf('day') },
+					{ name: 'This week',   label: `${startOfWeek(now, fdow).format('MMM D')} – ${endOfWeek(now, fdow).format('MMM D')}`,                                                                 start: startOfWeek(now, fdow),                      end: endOfWeek(now, fdow) },
+					{ name: 'Next week',   label: `${startOfWeek(now.clone().add(1,'weeks'), fdow).format('MMM D')} – ${endOfWeek(now.clone().add(1,'weeks'), fdow).format('MMM D')}`,                   start: startOfWeek(now.clone().add(1,'weeks'), fdow), end: endOfWeek(now.clone().add(1,'weeks'), fdow) },
 					{ name: 'This month',  label: `${now.clone().startOf('month').format('MMM D')} – ${now.clone().endOf('month').startOf('day').format('MMM D')}`,                                     start: now.clone().startOf('month'),               end: now.clone().endOf('month').startOf('day') },
 					{ name: 'Next month',  label: `${now.clone().add(1,'months').startOf('month').format('MMM D')} – ${now.clone().add(1,'months').endOf('month').startOf('day').format('MMM D')}`,     start: now.clone().add(1,'months').startOf('month'), end: now.clone().add(1,'months').endOf('month').startOf('day') },
 					{ name: 'Next 7 days', label: `${now.format('MMM D')} – ${now.clone().add(6,'days').format('MMM D')}`,                                                                             start: now.clone(),                                end: now.clone().add(6,'days') },
@@ -1983,27 +1997,32 @@ function computeDateSuggestions(query: string, settings: DateListSettings): Date
 	{
 		const keyword = q.split(' ')[0]!;
 		if (keyword === 'this' || keyword === 'next' || keyword === 'last') {
-			const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+			const fdow = settings.firstDayOfWeek;
+			// Weekday names ordered from the configured first day of week.
+			const DAYS = Array.from({ length: 7 }, (_, i) => moment().day((fdow + i) % 7).format('dddd').toLowerCase());
 			const entries: { label: string; m: MomentInstance }[] = [];
 
 			if (keyword === 'this') {
-				const weekStart = today.clone().startOf('isoWeek');
+				const weekStart = startOfWeek(today, fdow);
 				for (let i = 0; i < 7; i++) {
 					const m = weekStart.clone().add(i, 'days');
-					if (!m.isBefore(today)) entries.push({ label: `this ${DAYS[i]}`, m });
+					if (!m.isBefore(today)) entries.push({ label: `this ${m.format('dddd').toLowerCase()}`, m });
 				}
 				if (entries.length < 7) {
-					entries.push({ label: 'this week',  m: today.clone().startOf('isoWeek') });
+					entries.push({ label: 'this week',  m: startOfWeek(today, fdow) });
 					entries.push({ label: 'this month', m: today.clone().startOf('month') });
 				}
 			} else if (keyword === 'next') {
-				for (const day of DAYS) entries.push({ label: `next ${day}`, m: parseDate(`next ${day}`) });
-				entries.push({ label: 'next week',  m: parseDate('next week') });
-				entries.push({ label: 'next month', m: parseDate('next month') });
+				for (const day of DAYS) entries.push({ label: `next ${day}`, m: parseDate(`next ${day}`, fdow) });
+				entries.push({ label: 'next week',  m: parseDate('next week', fdow) });
+				entries.push({ label: 'next month', m: parseDate('next month', fdow) });
 			} else {
-				const lastMonday = today.clone().subtract(1, 'weeks').startOf('isoWeek');
-				for (let i = 0; i < 7; i++) entries.push({ label: `last ${DAYS[i]}`, m: lastMonday.clone().add(i, 'days') });
-				entries.push({ label: 'last week',  m: lastMonday.clone() });
+				const lastWeekStart = startOfWeek(today.clone().subtract(1, 'weeks'), fdow);
+				for (let i = 0; i < 7; i++) {
+					const m = lastWeekStart.clone().add(i, 'days');
+					entries.push({ label: `last ${m.format('dddd').toLowerCase()}`, m });
+				}
+				entries.push({ label: 'last week',  m: lastWeekStart.clone() });
 				entries.push({ label: 'last month', m: today.clone().subtract(1, 'months').startOf('month') });
 			}
 
@@ -2211,6 +2230,7 @@ class DateSuggest extends EditorSuggest<DateSuggestion> {
 function computeListSuggestions(query: string, settings: DateListSettings): DateListSuggestion[] {
 	const fmt = settings.defaultFormat || 'YYYY-MM-DD';
 	const today = moment().startOf('day');
+	const fdow = settings.firstDayOfWeek;
 
 	const formatLine = (m: MomentInstance): string => {
 		const formatted = m.format(fmt);
@@ -2281,8 +2301,8 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 	};
 
 	const LIST_PRESETS: DateListSuggestion[] = [
-		makeRange('this week',    today.clone().startOf('isoWeek'),                         today.clone().startOf('isoWeek').add(6, 'days')),
-		makeRange('next week',    today.clone().add(1, 'weeks').startOf('isoWeek'),         today.clone().add(1, 'weeks').startOf('isoWeek').add(6, 'days')),
+		makeRange('this week',    startOfWeek(today, fdow),                                 endOfWeek(today, fdow)),
+		makeRange('next week',    startOfWeek(today.clone().add(1, 'weeks'), fdow),         endOfWeek(today.clone().add(1, 'weeks'), fdow)),
 		makeRange('this month',   today.clone().startOf('month'),                           today.clone().endOf('month').startOf('day')),
 		makeRange('next month',   today.clone().add(1, 'months').startOf('month'),          today.clone().add(1, 'months').endOf('month').startOf('day')),
 		makeRange('next 7 days',  today.clone(),                                            today.clone().add(6, 'days')),
@@ -2362,7 +2382,7 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 	{
 		// Normalize "jul1" → "jul 1" so parseDate can handle it
 		const normalized = q.replace(/^([a-z]+)(\d)/, '$1 $2');
-		const startM = parseDate(normalized);
+		const startM = parseDate(normalized, fdow);
 		if (startM.isValid()) {
 			const start     = startM.clone().startOf('day');
 			const end7      = start.clone().add(6,  'days');
