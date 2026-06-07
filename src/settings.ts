@@ -66,7 +66,7 @@ export class DateListSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('First day of week')
-			.setDesc("Determines the bounds of the 'This week' and 'Next week' ranges.")
+			.setDesc("Determines the bounds of the 'this week' and 'next week' ranges.")
 			.addDropdown(dropdown => dropdown
 				.addOptions({ '0': 'Sunday', '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday', '4': 'Thursday', '5': 'Friday', '6': 'Saturday' })
 				.setValue(String(this.plugin.settings.firstDayOfWeek))
@@ -132,7 +132,7 @@ export class DateListSettingTab extends PluginSettingTab {
 			.setDesc('Text to prepend to each date by default.')
 			.addText((text) =>
 				text
-					.setPlaceholder('e.g. - or - [ ]')
+					.setPlaceholder('E.g. - or - [ ]')
 					.setValue(this.plugin.settings.defaultPrefix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPrefix = value;
@@ -145,7 +145,7 @@ export class DateListSettingTab extends PluginSettingTab {
 			.setDesc('Text to append after each date by default.')
 			.addText((text) =>
 				text
-					.setPlaceholder('e.g. - or —')
+					.setPlaceholder('E.g. - or —')
 					.setValue(this.plugin.settings.defaultPostfix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPostfix = value;

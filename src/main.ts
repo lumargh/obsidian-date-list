@@ -1,5 +1,4 @@
 // todo
-// - new feature: command: insert calendar (plain text) for month. e.g. /insert-calendar > dropdown to select this month, next month, and select. type to populate dropdown, e.g. dec. Inserts table where each cell is a day, linked to the daily not given the user's date format.
 // - settings: add format preview like in calendar-list
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
@@ -100,7 +99,7 @@ function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettin
 	const daysInMonth = first.daysInMonth();
 	const lead = (first.day() - fdow + 7) % 7; // blank cells before day 1
 
-	const cells: string[] = Array(lead).fill('');
+	const cells: string[] = Array.from({ length: lead }, () => '');
 	for (let d = 0; d < daysInMonth; d++) cells.push(cell(first.clone().add(d, 'days')));
 	while (cells.length % 7 !== 0) cells.push(''); // pad the final row
 
