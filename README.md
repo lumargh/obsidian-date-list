@@ -146,7 +146,7 @@ The [Various Complements](https://github.com/tadashi-aikawa/obsidian-various-com
 
 ## Related plugins
 
-If you like Date List, you might also like [Calendar List](https://community.obsidian.md/plugins/calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes.
+If you like Date List, you might also like [Calendar List](https://community.obsidian.md/plugins/calendar-list) — a companion plugin that pulls events from your macOS Calendar app and inserts them into your notes. I also made [File Filter](https://github.com/lumargh/obsidian-file-filter), which is a great plugin that lets you filter your notes by a search term. 
 
 ## Feedback and contributions
 
