@@ -106,6 +106,25 @@ The **Date List: Filter dates** command allows you to find all instances of a sp
 
 ---
 
+### Insert Calendar
+
+The **Date List: Insert calendar** command inserts a markdown table for a whole month. The header row follows your configured first day of week, and each day cell uses your date format and wiki link preference.
+
+![Calendar demo](assets/date-list-cal-demo.gif)
+
+A searchable picker lets you choose the month:
+
+| What you type | What you get |
+|---|---|
+| *(empty)* | The next 12 months, starting with the current month |
+| `+1` | One month and one year ahead — type `+1m` or `+1y` to narrow |
+| `dec` | December of the current year |
+| `jan 2027` | A specific month and year |
+
+With wiki links enabled, each cell links to that day's note (e.g. `[[2026-06-07\|7]]`); otherwise it shows the plain day number.
+
+---
+
 ### Configure Date List
 
 Every time you enter a date, you can choose from a default format or customize it on the fly. The plugin supports wiki links, aliases, and any date format you can think of.
@@ -117,6 +136,8 @@ In the plugin settings, you can customize your default preferences. For example,
 In the plugin settings, you can customize your default date format preferences and trigger characters. For example, if you use Daily Notes, you may have a dating convention like YYYY-MM-DD, but prefer a more readable format in the alias.
 
 The **inline date trigger** (default `@`) and **inline date list trigger** (default `@@`) can each be changed to any character or sequence that doesn't conflict with other plugins.
+
+The **first day of week** setting (default Monday) determines where weeks begin for the inserted calendar and for the *this week* / *next week* ranges throughout the plugin.
 
 ![Settings](https://github.com/lumargh/obsidian-date-list/blob/master/assets/settings.png)
 

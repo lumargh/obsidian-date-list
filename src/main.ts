@@ -28,7 +28,7 @@ import 'flatpickr/dist/flatpickr.min.css';
 
 // _m is typed as a non-callable namespace; build a callable type from its own members.
 type MomentInstance = ReturnType<typeof _m.utc>;
-type MomentFactory = { (): MomentInstance; (inp: string, fmt?: string | string[]): MomentInstance } & typeof _m;
+type MomentFactory = { (): MomentInstance; (inp: string, fmt?: string | string[], strict?: boolean): MomentInstance } & typeof _m;
 const moment = _m as unknown as MomentFactory;
 type DurationUnit = 'days' | 'weeks' | 'months' | 'years';
 
@@ -80,6 +80,37 @@ function buildDates(state: WizardState): string[] {
 		current.add(1, 'days');
 	}
 	return all;
+}
+
+// Build a markdown calendar table for the month containing `monthStart`.
+// Header starts on the user's configured first day of week; day cells show the day
+// number, optionally linked to the date in the user's date format when wikilinks are on.
+function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings): string {
+	const fdow = settings.firstDayOfWeek;
+	const header = Array.from({ length: 7 }, (_, i) => moment().day((fdow + i) % 7).format('ddd'));
+
+	const cell = (m: MomentInstance): string => {
+		const day = m.format('D');
+		if (!settings.defaultWikiLinks) return day;
+		// The alias pipe must be escaped inside a markdown table cell.
+		return `[[${m.format(settings.defaultFormat || 'YYYY-MM-DD')}\\|${day}]]`;
+	};
+
+	const first = monthStart.clone().startOf('month');
+	const daysInMonth = first.daysInMonth();
+	const lead = (first.day() - fdow + 7) % 7; // blank cells before day 1
+
+	const cells: string[] = Array(lead).fill('');
+	for (let d = 0; d < daysInMonth; d++) cells.push(cell(first.clone().add(d, 'days')));
+	while (cells.length % 7 !== 0) cells.push(''); // pad the final row
+
+	const rows: string[] = [];
+	rows.push(`| ${header.join(' | ')} |`);
+	rows.push(`| ${header.map(() => '---').join(' | ')} |`);
+	for (let i = 0; i < cells.length; i += 7) {
+		rows.push(`| ${cells.slice(i, i + 7).join(' | ')} |`);
+	}
+	return rows.join('\n');
 }
 
 function renderPreview(el: HTMLElement, state: WizardState): void {
@@ -771,6 +802,22 @@ export default class DateListPlugin extends Plugin {
 		});
 
 		// ---------------------------------------------------------------
+		// Insert Calendar — markdown table for a month
+		// ---------------------------------------------------------------
+		this.addCommand({
+			id: 'insert-calendar',
+			name: 'Insert calendar',
+			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
+				const month = await promptMonth(this.app);
+				if (month === BACK) return;
+				const table = buildCalendarTable(month, this.settings);
+				// Markdown tables must start on their own line to render.
+				const prefix = editor.getCursor().ch > 0 ? '\n' : '';
+				editor.replaceSelection(`${prefix}${table}`);
+			},
+		});
+
+		// ---------------------------------------------------------------
 		// Filter Dates — recurring day-of-week pattern
 		// ---------------------------------------------------------------
 		this.addCommand({
@@ -1034,6 +1081,166 @@ class PromptModal extends Modal {
 		if (!this.confirmed) this.resolve(BACK);
 		this.contentEl.empty();
 	}
+}
+
+// -------------------------------------------------------------------
+// MonthPickerModal — searchable month picker for the calendar command
+// -------------------------------------------------------------------
+const MONTH_PARSE_FORMATS = ['MMMM YYYY', 'MMM YYYY', 'YYYY-MM', 'MMMM', 'MMM', 'M'];
+
+interface MonthSuggestion { m: MomentInstance; label: string; }
+
+// Mirrors the inline suggester: a rolling 12-month default list, "+N [m|y]"
+// relative offsets, and free month/year parsing — all live-filtered by the query.
+function computeMonthSuggestions(query: string): MonthSuggestion[] {
+	const now = moment().startOf('month');
+	const base: MonthSuggestion[] = [];
+	for (let i = 0; i < 12; i++) {
+		const m = now.clone().add(i, 'months');
+		base.push({ m, label: i === 0 ? 'this month' : i === 1 ? 'next month' : '' });
+	}
+
+	const q = query.trim().toLowerCase();
+	if (!q) return base;
+
+	const out: MonthSuggestion[] = [];
+	const seen = new Set<string>();
+	const push = (m: MomentInstance, label: string) => {
+		const k = m.format('YYYY-MM');
+		if (seen.has(k)) return;
+		seen.add(k);
+		out.push({ m, label });
+	};
+
+	// "+N [m|y]" → +N months and/or +N years from the current month; unit hint filters.
+	const rel = q.match(/^\+(\d+)\s*([a-z]*)$/);
+	if (rel) {
+		const n = parseInt(rel[1]!);
+		const hint = rel[2]!;
+		const units = ([
+			{ key: 'months', word: 'month' },
+			{ key: 'years',  word: 'year' },
+		] as const).filter(u => !hint || u.key.startsWith(hint) || u.word.startsWith(hint));
+		for (const u of units) push(now.clone().add(n, u.key), `+${n} ${u.word}${n === 1 ? '' : 's'}`);
+		return out;
+	}
+
+	// Explicit month / year (e.g. dec, jan 2027, 2026-12).
+	const parsed = moment(q, MONTH_PARSE_FORMATS, true);
+	if (parsed.isValid()) push(parsed.startOf('month'), '');
+
+	// Text-filter the rolling 12-month list.
+	for (const s of base) {
+		const hay = `${s.m.format('MMMM YYYY')} ${s.m.format('MMM YYYY')} ${s.m.format('YYYY-MM')} ${s.label}`.toLowerCase();
+		if (hay.includes(q)) push(s.m, s.label);
+	}
+
+	return out;
+}
+
+class MonthPickerModal extends Modal {
+	private resolved = false;
+	constructor(app: App, private resolve: (value: MomentInstance | typeof BACK) => void) {
+		super(app);
+	}
+
+	onOpen() {
+		this.modalEl.addClass('date-list-modal');
+		const { contentEl } = this;
+
+		this.titleEl.empty();
+		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
+		backBtn.addEventListener('click', () => this.close());
+		this.titleEl.createSpan({ text: 'Insert calendar' });
+
+		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
+		const left = body.createEl('div', { cls: 'date-list-modal-left' });
+
+		const searchInput = left.createEl('input', {
+			type: 'text',
+			cls: 'date-list-quick-search',
+			placeholder: 'this month, +1 month, dec, jan 2027…',
+		});
+
+		const listEl = left.createEl('div');
+		let current: MonthSuggestion[] = [];
+		let btns: HTMLButtonElement[] = [];
+
+		const select = (s: MonthSuggestion) => {
+			this.resolved = true;
+			this.resolve(s.m);
+			this.close();
+		};
+
+		const renderList = (query: string) => {
+			listEl.empty();
+			current = computeMonthSuggestions(query);
+			btns = current.map((s, i) => {
+				const btn = listEl.createEl('button', { cls: 'date-list-option-btn has-subtext' });
+				btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+				if (s.label) btn.createEl('span', { text: s.label, cls: 'date-list-option-subtext' });
+				btn.createEl('span', { text: s.m.format('MMMM YYYY'), cls: 'date-list-option-text' });
+				btn.addEventListener('click', () => select(s));
+				return btn;
+			});
+		};
+
+		renderList('');
+
+		searchInput.addEventListener('input', () => renderList(searchInput.value.trim()));
+		searchInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				if (current[0]) select(current[0]);
+			} else if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				e.stopPropagation();
+				btns[0]?.focus();
+			}
+		});
+
+		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
+			if (activeDocument.activeElement === searchInput) return;
+			const focused = btns.findIndex(b => b === activeDocument.activeElement);
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				if (focused >= btns.length - 1) searchInput.focus();
+				else btns[focused + 1]?.focus();
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				if (focused <= 0) searchInput.focus();
+				else btns[focused - 1]?.focus();
+			} else if (e.key === 'Enter' && focused >= 0) {
+				e.preventDefault();
+				const s = current[focused];
+				if (s) select(s);
+			} else {
+				const idx = parseInt(e.key) - 1;
+				if (isNaN(idx)) return;
+				e.preventDefault();
+				const s = current[idx];
+				if (s) select(s);
+			}
+		});
+
+		const actions = left.createEl('div', { cls: 'date-list-modal-actions' });
+		const okBtn = actions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' });
+		okBtn.addEventListener('click', () => {
+			const s = current[btns.findIndex(b => b === activeDocument.activeElement)] ?? current[0];
+			if (s) select(s);
+		});
+
+		window.setTimeout(() => searchInput.focus(), 50);
+	}
+
+	onClose() {
+		if (!this.resolved) this.resolve(BACK);
+		this.contentEl.empty();
+	}
+}
+
+function promptMonth(app: App): Promise<MomentInstance | typeof BACK> {
+	return new Promise((resolve) => new MonthPickerModal(app, resolve).open());
 }
 
 // -------------------------------------------------------------------
