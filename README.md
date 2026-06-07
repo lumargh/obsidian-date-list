@@ -2,6 +2,8 @@
 
 An Obsidian plugin for inserting single dates and formatted date lists, with a live-preview wizard and inline autocomplete. This plugin is actively being developed, so create a GitHub issue if you have any trouble.
 
+![Date List demo](assets/date-list-demo.gif)
+
 ## Features
 
 ### Inline `@` autosuggest
