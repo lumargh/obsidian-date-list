@@ -1,6 +1,6 @@
 {
 	"name": "date-list",
-	"version": "1.3.0",
+	"version": "1.3.1",
 	"description": "Insert lists of dates into Obsidian notes",
 	"main": "main.js",
 	"type": "module",
