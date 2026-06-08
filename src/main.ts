@@ -84,13 +84,13 @@ function buildDates(state: WizardState): string[] {
 // Build a markdown calendar table for the month containing `monthStart`.
 // Header starts on the user's configured first day of week; day cells show the day
 // number, optionally linked to the date in the user's date format when wikilinks are on.
-function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings): string {
+function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings, wikiLinks: boolean): string {
 	const fdow = settings.firstDayOfWeek;
 	const header = Array.from({ length: 7 }, (_, i) => moment().day((fdow + i) % 7).format('ddd'));
 
 	const cell = (m: MomentInstance): string => {
 		const day = m.format('D');
-		if (!settings.defaultWikiLinks) return day;
+		if (!wikiLinks) return day;
 		// The alias pipe must be escaped inside a markdown table cell.
 		return `[[${m.format(settings.defaultFormat || 'YYYY-MM-DD')}\\|${day}]]`;
 	};
@@ -807,9 +807,9 @@ export default class DateListPlugin extends Plugin {
 			id: 'insert-calendar',
 			name: 'Insert calendar',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
-				const month = await promptMonth(this.app);
-				if (month === BACK) return;
-				const table = buildCalendarTable(month, this.settings);
+				const choice = await promptMonth(this.app, this.settings.defaultWikiLinks);
+				if (choice === BACK) return;
+				const table = buildCalendarTable(choice.m, this.settings, choice.link);
 				// Markdown tables must start on their own line to render.
 				const prefix = editor.getCursor().ch > 0 ? '\n' : '';
 				editor.replaceSelection(`${prefix}${table}`);
@@ -1137,9 +1137,15 @@ function computeMonthSuggestions(query: string): MonthSuggestion[] {
 	return out;
 }
 
+interface MonthChoice { m: MomentInstance; link: boolean; }
+
 class MonthPickerModal extends Modal {
 	private resolved = false;
-	constructor(app: App, private resolve: (value: MomentInstance | typeof BACK) => void) {
+	constructor(
+		app: App,
+		private defaultLink: boolean,
+		private resolve: (value: MonthChoice | typeof BACK) => void,
+	) {
 		super(app);
 	}
 
@@ -1164,10 +1170,11 @@ class MonthPickerModal extends Modal {
 		const listEl = left.createEl('div');
 		let current: MonthSuggestion[] = [];
 		let btns: HTMLButtonElement[] = [];
+		let linkCheckbox: HTMLInputElement;
 
 		const select = (s: MonthSuggestion) => {
 			this.resolved = true;
-			this.resolve(s.m);
+			this.resolve({ m: s.m, link: linkCheckbox.checked });
 			this.close();
 		};
 
@@ -1229,6 +1236,11 @@ class MonthPickerModal extends Modal {
 			if (s) select(s);
 		});
 
+		const linkLabel = actions.createEl('label', { cls: 'date-list-link-toggle' });
+		linkCheckbox = linkLabel.createEl('input', { type: 'checkbox' });
+		linkCheckbox.checked = this.defaultLink;
+		linkLabel.createSpan({ text: 'Link to daily notes' });
+
 		window.setTimeout(() => searchInput.focus(), 50);
 	}
 
@@ -1238,8 +1250,8 @@ class MonthPickerModal extends Modal {
 	}
 }
 
-function promptMonth(app: App): Promise<MomentInstance | typeof BACK> {
-	return new Promise((resolve) => new MonthPickerModal(app, resolve).open());
+function promptMonth(app: App, defaultLink: boolean): Promise<MonthChoice | typeof BACK> {
+	return new Promise((resolve) => new MonthPickerModal(app, defaultLink, resolve).open());
 }
 
 // -------------------------------------------------------------------
