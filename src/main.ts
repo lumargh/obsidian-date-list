@@ -58,6 +58,15 @@ interface WizardState {
 	postfix: string;
 }
 
+// The user-configurable output format, shared by the "Save format" helpers.
+interface FormatConfig {
+	fmt: string;
+	wikiLinks: boolean;
+	alias: string;
+	prefix: string;
+	postfix: string;
+}
+
 function buildDates(state: WizardState): string[] {
 	const n = parseInt(state.nStr);
 	if (isNaN(n) || n < 1) return [];
@@ -565,7 +574,9 @@ function addSaveFormatButton(actions: HTMLElement, onSaveFormat?: () => void | P
 		text: 'Save format',
 		attr: { 'aria-label': 'This will update your default date format' },
 	});
-	btn.addEventListener('click', () => { void onSaveFormat(); });
+	// After saving, the format matches the defaults, so the button no longer
+	// applies — remove it (the modal stays open for the pending action).
+	btn.addEventListener('click', () => { void Promise.resolve(onSaveFormat()).then(() => btn.remove()); });
 }
 
 // -------------------------------------------------------------------
@@ -816,10 +827,8 @@ export default class DateListPlugin extends Plugin {
 					fmt, wikiLinks, alias, prefix, postfix,
 				});
 
-				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
-
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), saveFormat);
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -875,10 +884,8 @@ export default class DateListPlugin extends Plugin {
 					fmt, wikiLinks, alias, prefix, postfix,
 				});
 
-				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
-
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), saveFormat);
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -979,8 +986,6 @@ export default class DateListPlugin extends Plugin {
 					};
 				};
 
-				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
-
 				outer: while (true) {
 					// step 0 — day type
 					if (step === 0) {
@@ -1011,7 +1016,7 @@ export default class DateListPlugin extends Plugin {
 							undefined,
 							undefined,
 							true,
-							saveFormat,
+							this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }),
 						);
 						if (r === BACK) return;
 						if (r === CONFIGURE) {
@@ -1033,7 +1038,7 @@ export default class DateListPlugin extends Plugin {
 							stepUnit,
 							selectedWeekdays,
 							state(),
-							saveFormat,
+							this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }),
 						);
 						if (r === BACK) { step--; continue; }
 						if (r === CONFIGURE) {
@@ -1082,10 +1087,8 @@ export default class DateListPlugin extends Plugin {
 					defaultFormat: fmt, defaultWikiLinks: wikiLinks, defaultAlias: alias,
 					defaultPrefix: prefix, defaultPostfix: postfix,
 				});
-				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
-
 				while (true) {
-					const r = await promptQuickInsert(this.app, effSettings(), buildState(moment()), buildState, saveFormat);
+					const r = await promptQuickInsert(this.app, effSettings(), buildState(moment()), buildState, this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, moment(), { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -1114,7 +1117,7 @@ export default class DateListPlugin extends Plugin {
 
 	// Persist an ad-hoc format (configured in an insert/filter modal) as the
 	// new defaults, so the "Save format" button can update them in place.
-	async saveDefaultFormat(f: { fmt: string; wikiLinks: boolean; alias: string; prefix: string; postfix: string }) {
+	async saveDefaultFormat(f: FormatConfig) {
 		this.settings.defaultFormat    = f.fmt;
 		this.settings.defaultWikiLinks = f.wikiLinks;
 		this.settings.defaultAlias     = f.alias;
@@ -1122,6 +1125,23 @@ export default class DateListPlugin extends Plugin {
 		this.settings.defaultPostfix   = f.postfix;
 		await this.saveSettings();
 		new Notice('Default format saved');
+	}
+
+	// True when an ad-hoc format differs from the saved defaults. The format
+	// falls back to YYYY-MM-DD when no default is set, so compare against the
+	// same effective default to avoid a false positive on an empty setting.
+	isFormatModified(f: FormatConfig): boolean {
+		return f.fmt       !== (this.settings.defaultFormat || 'YYYY-MM-DD')
+			|| f.wikiLinks !== this.settings.defaultWikiLinks
+			|| f.alias     !== this.settings.defaultAlias
+			|| f.prefix    !== this.settings.defaultPrefix
+			|| f.postfix   !== this.settings.defaultPostfix;
+	}
+
+	// A save callback for the modal's "Save format" button, or undefined when
+	// the format is unchanged — so the button only appears once it's modified.
+	maybeSaveFormat(f: FormatConfig): (() => Promise<void>) | undefined {
+		return this.isFormatModified(f) ? () => this.saveDefaultFormat(f) : undefined;
 	}
 }
 
