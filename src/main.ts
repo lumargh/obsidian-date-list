@@ -1,6 +1,5 @@
 // todo
-// - new command: insert date table
-// - settings: add format preview like in calendar-list
+// - settings: add output format preview like in calendar-list
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
@@ -80,6 +79,15 @@ function buildDates(state: WizardState): string[] {
 		current.add(1, 'days');
 	}
 	return all;
+}
+
+// Build a two-column markdown table from a list of formatted date cells:
+// the dates in the first column and a blank "Notes" column beside them.
+// Pipes are escaped so aliased wikilinks ([[date|alias]]) don't break cells.
+function buildDateTable(dates: string[]): string {
+	const lines = ['| Date | Notes |', '| --- | --- |'];
+	for (const d of dates) lines.push(`| ${d.replace(/\|/g, '\\|')} |  |`);
+	return lines.join('\n');
 }
 
 // Build a markdown calendar table for the month containing `monthStart`.
@@ -798,6 +806,63 @@ export default class DateListPlugin extends Plugin {
 				}
 
 				editor.replaceSelection(buildDates(state()).join('\n'));
+			},
+		});
+
+		// ---------------------------------------------------------------
+		// Insert Table — date range as a two-column markdown table
+		// ---------------------------------------------------------------
+		this.addCommand({
+			id: 'insert-table',
+			name: 'Insert table',
+			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
+				let startInput = moment().format('YYYY-MM-DD');
+				let endInput   = '';
+				let fmt        = this.settings.defaultFormat   || 'YYYY-MM-DD';
+				let wikiLinks  = this.settings.defaultWikiLinks;
+				let alias      = this.settings.defaultAlias;
+				let prefix     = this.settings.defaultPrefix;
+				let postfix    = this.settings.defaultPostfix;
+				let startMoment = moment();
+				let endMoment   = startMoment.clone().add(1, 'days');
+
+				const now = moment();
+				const fdow = this.settings.firstDayOfWeek;
+				const rangePresets = [
+					{ name: 'This week',   label: `${startOfWeek(now, fdow).format('MMM D')} – ${endOfWeek(now, fdow).format('MMM D')}`,                                                             start: startOfWeek(now, fdow),                      end: endOfWeek(now, fdow) },
+					{ name: 'Next week',   label: `${startOfWeek(now.clone().add(1,'weeks'), fdow).format('MMM D')} – ${endOfWeek(now.clone().add(1,'weeks'), fdow).format('MMM D')}`,               start: startOfWeek(now.clone().add(1,'weeks'), fdow), end: endOfWeek(now.clone().add(1,'weeks'), fdow) },
+					{ name: 'This month',  label: `${now.clone().startOf('month').format('MMM D')} – ${now.clone().endOf('month').startOf('day').format('MMM D')}`,                                 start: now.clone().startOf('month'),               end: now.clone().endOf('month').startOf('day') },
+					{ name: 'Next month',  label: `${now.clone().add(1,'months').startOf('month').format('MMM D')} – ${now.clone().add(1,'months').endOf('month').startOf('day').format('MMM D')}`, start: now.clone().add(1,'months').startOf('month'), end: now.clone().add(1,'months').endOf('month').startOf('day') },
+					{ name: 'Next 7 days', label: `${now.format('MMM D')} – ${now.clone().add(6,'days').format('MMM D')}`,                                                                         start: now.clone(),                                end: now.clone().add(6,'days') },
+					{ name: 'Next 30 days',label: `${now.format('MMM D')} – ${now.clone().add(29,'days').format('MMM D')}`,                                                                        start: now.clone(),                                end: now.clone().add(29,'days') },
+				];
+
+				const state = (): WizardState => ({
+					startMoment: startMoment.clone(),
+					nStr: String(Math.max(1, endMoment.diff(startMoment, 'days') + 1)),
+					stepUnit: 'days', weekdays: null,
+					fmt, wikiLinks, alias, prefix, postfix,
+				});
+
+				while (true) {
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state());
+					if (r === BACK) return;
+					if (r === CONFIGURE) {
+						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
+						if (res !== BACK) ({ fmt, wikiLinks, alias, prefix, postfix } = res);
+						continue;
+					}
+					startInput  = r.startInput;
+					startMoment = r.startMoment;
+					endInput    = r.endInput;
+					endMoment   = r.endMoment;
+					break;
+				}
+
+				const table = buildDateTable(buildDates(state()));
+				// Markdown tables must start on their own line to render.
+				const linePrefix = editor.getCursor().ch > 0 ? '\n' : '';
+				editor.replaceSelection(`${linePrefix}${table}`);
 			},
 		});
 
