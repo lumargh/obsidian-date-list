@@ -1,4 +1,5 @@
 // todo
+// - new command: insert date table
 // - settings: add format preview like in calendar-list
 // - new feature: command: insert date using calednar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
@@ -2594,6 +2595,46 @@ function computeListSuggestions(query: string, settings: DateListSettings): Date
 		}
 
 		if (results.length > 0) return results;
+	}
+
+	// Explicit range → one exact-range suggestion.
+	// Compact shared-month form ("july 1-13", end inherits the start's month)
+	// and spaced full form ("july 1 - aug 2", "july 1 to aug 2", "july 1 – aug 2").
+	{
+		const normalize = (s: string) => s.trim().replace(/^([a-z]+)(\d)/, '$1 $2');
+		const rangeFor = (a: MomentInstance, b: MomentInstance): DateListSuggestion => {
+			let start = a.clone().startOf('day');
+			let end   = b.clone().startOf('day');
+			if (end.isBefore(start)) [start, end] = [end, start];
+			const n = end.diff(start, 'days') + 1;
+			return makeRange(`${n} ${n === 1 ? 'day' : 'days'}`, start, end);
+		};
+
+		// Compact: <month> <startDay>-<endDay>, end day inherits start's month/year.
+		const compact = q.match(/^([a-z]+)\s*(\d{1,2})\s*[-–]\s*(\d{1,2})$/);
+		if (compact) {
+			const start  = parseDate(`${compact[1]} ${compact[2]}`, fdow);
+			const endDay = parseInt(compact[3]!);
+			if (start.isValid() && endDay >= 1 && endDay <= start.daysInMonth()) {
+				return [rangeFor(start, start.clone().date(endDay))];
+			}
+		}
+
+		// Spaced: a full date on each side, separated by " to " / " - " / " – ".
+		const spaced = q.match(/^(.+?)\s+(?:to|[-–])\s+(.+)$/);
+		if (spaced) {
+			const start  = parseDate(normalize(spaced[1]!), fdow);
+			const endRaw = spaced[2]!.trim();
+			// A bare end day ("july 1 - 13") inherits the start's month/year.
+			let end: MomentInstance;
+			if (/^\d{1,2}$/.test(endRaw) && start.isValid()) {
+				const d = parseInt(endRaw);
+				end = d >= 1 && d <= start.daysInMonth() ? start.clone().date(d) : moment.invalid();
+			} else {
+				end = parseDate(normalize(endRaw), fdow);
+			}
+			if (start.isValid() && end.isValid()) return [rangeFor(start, end)];
+		}
 	}
 
 	// Typed start date → 7 / 14 / end-of-month range options
