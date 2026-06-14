@@ -821,8 +821,11 @@ export default class DateListPlugin extends Plugin {
 				let fmt        = this.settings.defaultFormat   || 'YYYY-MM-DD';
 				let wikiLinks  = this.settings.defaultWikiLinks;
 				let alias      = this.settings.defaultAlias;
-				let prefix     = this.settings.defaultPrefix;
-				let postfix    = this.settings.defaultPostfix;
+				// Prefix/postfix are list-bullet decorations that don't belong in a
+				// table cell, so the default ones are dropped (the format wizard can
+				// still re-add them if the user explicitly wants them).
+				let prefix     = '';
+				let postfix    = '';
 				let startMoment = moment();
 				let endMoment   = startMoment.clone().add(1, 'days');
 
