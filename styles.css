@@ -241,6 +241,13 @@
 	white-space: nowrap;
 }
 
+.date-list-save-format-btn {
+	padding: 4px 12px;
+	flex-shrink: 0;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
 .date-list-link-toggle {
 	display: flex;
 	align-items: center;

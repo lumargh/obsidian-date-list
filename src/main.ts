@@ -323,9 +323,10 @@ function suggest<T>(
 	defaultValue?: T,
 	subtexts?: string[],
 	showConfigureBtn = false,
+	onSaveFormat?: () => void | Promise<void>,
 ): Promise<T | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new SuggesterModal(app, title, instructions, options, values, state, previewMapper, resolve, defaultValue, subtexts, showConfigureBtn).open(),
+		new SuggesterModal(app, title, instructions, options, values, state, previewMapper, resolve, defaultValue, subtexts, showConfigureBtn, onSaveFormat).open(),
 	);
 }
 
@@ -334,9 +335,10 @@ function promptQuickInsert(
 	settings: DateListSettings,
 	blankState: WizardState,
 	buildState: (m: MomentInstance) => WizardState,
+	onSaveFormat?: () => void | Promise<void>,
 ): Promise<MomentInstance | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new QuickInsertModal(app, settings, blankState, buildState, resolve).open(),
+		new QuickInsertModal(app, settings, blankState, buildState, resolve, onSaveFormat).open(),
 	);
 }
 
@@ -520,9 +522,10 @@ function promptInsertDate(
 	defaultStartInput: string,
 	defaultEndInput: string,
 	state: WizardState,
+	onSaveFormat?: () => void | Promise<void>,
 ): Promise<InsertDateResult | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new InsertDateModal(app, rangePresets, defaultStartInput, defaultEndInput, state, resolve).open(),
+		new InsertDateModal(app, rangePresets, defaultStartInput, defaultEndInput, state, resolve, onSaveFormat).open(),
 	);
 }
 
@@ -545,10 +548,24 @@ function promptFilterRange(
 	defaultUnit: string,
 	selectedWeekdays: number[],
 	state: WizardState,
+	onSaveFormat?: () => void | Promise<void>,
 ): Promise<FilterRangeResult | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new FilterRangeModal(app, defaultMethod, defaultStartInput, defaultEndInput, defaultN, defaultUnit, selectedWeekdays, state, resolve).open(),
+		new FilterRangeModal(app, defaultMethod, defaultStartInput, defaultEndInput, defaultN, defaultUnit, selectedWeekdays, state, resolve, onSaveFormat).open(),
 	);
+}
+
+// Inserts a "Save format" button into a modal's action row. Call it after the
+// OK button and before the "Configure format…" button so it sits between them.
+// The modal stays open on click — the user still has an action to complete.
+function addSaveFormatButton(actions: HTMLElement, onSaveFormat?: () => void | Promise<void>): void {
+	if (!onSaveFormat) return;
+	const btn = actions.createEl('button', {
+		cls: 'date-list-save-format-btn',
+		text: 'Save format',
+		attr: { 'aria-label': 'This will update your default date format' },
+	});
+	btn.addEventListener('click', () => { void onSaveFormat(); });
 }
 
 // -------------------------------------------------------------------
@@ -799,8 +816,10 @@ export default class DateListPlugin extends Plugin {
 					fmt, wikiLinks, alias, prefix, postfix,
 				});
 
+				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
+
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state());
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), saveFormat);
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -856,8 +875,10 @@ export default class DateListPlugin extends Plugin {
 					fmt, wikiLinks, alias, prefix, postfix,
 				});
 
+				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
+
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state());
+					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), saveFormat);
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -958,6 +979,8 @@ export default class DateListPlugin extends Plugin {
 					};
 				};
 
+				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
+
 				outer: while (true) {
 					// step 0 — day type
 					if (step === 0) {
@@ -988,6 +1011,7 @@ export default class DateListPlugin extends Plugin {
 							undefined,
 							undefined,
 							true,
+							saveFormat,
 						);
 						if (r === BACK) return;
 						if (r === CONFIGURE) {
@@ -1009,6 +1033,7 @@ export default class DateListPlugin extends Plugin {
 							stepUnit,
 							selectedWeekdays,
 							state(),
+							saveFormat,
 						);
 						if (r === BACK) { step--; continue; }
 						if (r === CONFIGURE) {
@@ -1035,34 +1060,36 @@ export default class DateListPlugin extends Plugin {
 			id: 'quick-insert',
 			name: 'Quick insert',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
+				// Ad-hoc format lives in locals; "Configure format…" only changes it
+				// for this insertion, and "Save format" persists it to the defaults.
+				let fmt       = this.settings.defaultFormat || 'YYYY-MM-DD';
+				let wikiLinks = this.settings.defaultWikiLinks;
+				let alias     = this.settings.defaultAlias;
+				let prefix    = this.settings.defaultPrefix;
+				let postfix   = this.settings.defaultPostfix;
+
+				const buildState = (m: MomentInstance): WizardState => ({
+					startMoment: m.clone(),
+					nStr: '1',
+					stepUnit: 'days',
+					weekdays: null,
+					fmt, wikiLinks, alias, prefix, postfix,
+				});
+				// Overlay the ad-hoc format onto the settings the modal reads so the
+				// suggestion list reflects it without touching the saved defaults.
+				const effSettings = (): DateListSettings => ({
+					...this.settings,
+					defaultFormat: fmt, defaultWikiLinks: wikiLinks, defaultAlias: alias,
+					defaultPrefix: prefix, defaultPostfix: postfix,
+				});
+				const saveFormat = () => this.saveDefaultFormat({ fmt, wikiLinks, alias, prefix, postfix });
+
 				while (true) {
-					const s = this.settings;
-					const fmt = s.defaultFormat || 'YYYY-MM-DD';
-
-					const buildState = (m: MomentInstance): WizardState => ({
-						startMoment: m.clone(),
-						nStr: '1',
-						stepUnit: 'days',
-						weekdays: null,
-						fmt,
-						wikiLinks: s.defaultWikiLinks,
-						alias: s.defaultAlias,
-						prefix: s.defaultPrefix,
-						postfix: s.defaultPostfix,
-					});
-
-					const r = await promptQuickInsert(this.app, s, buildState(moment()), buildState);
+					const r = await promptQuickInsert(this.app, effSettings(), buildState(moment()), buildState, saveFormat);
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
-						const res = await runFormatWizard(this.app, moment(), { fmt, wikiLinks: s.defaultWikiLinks, alias: s.defaultAlias, prefix: s.defaultPrefix, postfix: s.defaultPostfix }, this.settings);
-						if (res !== BACK) {
-							this.settings.defaultFormat    = res.fmt;
-							this.settings.defaultWikiLinks = res.wikiLinks;
-							this.settings.defaultAlias     = res.alias;
-							this.settings.defaultPrefix    = res.prefix;
-							this.settings.defaultPostfix   = res.postfix;
-							await this.saveSettings();
-						}
+						const res = await runFormatWizard(this.app, moment(), { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
+						if (res !== BACK) ({ fmt, wikiLinks, alias, prefix, postfix } = res);
 						continue;
 					}
 					editor.replaceSelection(buildDates(buildState(r))[0] ?? '');
@@ -1083,6 +1110,18 @@ export default class DateListPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	// Persist an ad-hoc format (configured in an insert/filter modal) as the
+	// new defaults, so the "Save format" button can update them in place.
+	async saveDefaultFormat(f: { fmt: string; wikiLinks: boolean; alias: string; prefix: string; postfix: string }) {
+		this.settings.defaultFormat    = f.fmt;
+		this.settings.defaultWikiLinks = f.wikiLinks;
+		this.settings.defaultAlias     = f.alias;
+		this.settings.defaultPrefix    = f.prefix;
+		this.settings.defaultPostfix   = f.postfix;
+		await this.saveSettings();
+		new Notice('Default format saved');
 	}
 }
 
@@ -1346,6 +1385,7 @@ class SuggesterModal<T> extends Modal {
 	private defaultValue?: T;
 	private subtexts?: string[];
 	private showConfigureBtn: boolean;
+	private onSaveFormat?: () => void | Promise<void>;
 	private confirmed = false;
 
 	constructor(
@@ -1360,6 +1400,7 @@ class SuggesterModal<T> extends Modal {
 		defaultValue?: T,
 		subtexts?: string[],
 		showConfigureBtn = false,
+		onSaveFormat?: () => void | Promise<void>,
 	) {
 		super(app);
 		this.title = title;
@@ -1372,6 +1413,7 @@ class SuggesterModal<T> extends Modal {
 		this.defaultValue = defaultValue;
 		this.subtexts = subtexts;
 		this.showConfigureBtn = showConfigureBtn;
+		this.onSaveFormat = onSaveFormat;
 	}
 
 	onOpen() {
@@ -1442,6 +1484,7 @@ class SuggesterModal<T> extends Modal {
 		});
 
 		if (this.showConfigureBtn) {
+			addSaveFormatButton(suggActions, this.onSaveFormat);
 			const configBtn = suggActions.createEl('button', { cls: 'date-list-configure-btn' });
 			setIcon(configBtn, 'settings');
 			configBtn.createEl('span', { text: 'Configure format…' });
@@ -1470,6 +1513,7 @@ class QuickInsertModal extends Modal {
 	private blankState: WizardState;
 	private buildState: (m: MomentInstance) => WizardState;
 	private resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void;
+	private onSaveFormat?: () => void | Promise<void>;
 	private confirmed = false;
 
 	constructor(
@@ -1478,12 +1522,14 @@ class QuickInsertModal extends Modal {
 		blankState: WizardState,
 		buildState: (m: MomentInstance) => WizardState,
 		resolve: (value: MomentInstance | typeof BACK | typeof CONFIGURE) => void,
+		onSaveFormat?: () => void | Promise<void>,
 	) {
 		super(app);
 		this.settings = settings;
 		this.blankState = blankState;
 		this.buildState = buildState;
 		this.resolve = resolve;
+		this.onSaveFormat = onSaveFormat;
 	}
 
 	onOpen() {
@@ -1583,6 +1629,7 @@ class QuickInsertModal extends Modal {
 			if (s) select(s);
 			else if (currentSuggestions[0]) select(currentSuggestions[0]);
 		});
+		addSaveFormatButton(qiActions, this.onSaveFormat);
 		const qiConfigBtn = qiActions.createEl('button', { cls: 'date-list-configure-btn' });
 		setIcon(qiConfigBtn, 'settings');
 		qiConfigBtn.createEl('span', { text: 'Configure format…' });
@@ -1610,6 +1657,7 @@ class InsertDateModal extends Modal {
 	private defaultEndInput: string;
 	private state: WizardState;
 	private resolve: (value: InsertDateResult | typeof BACK | typeof CONFIGURE) => void;
+	private onSaveFormat?: () => void | Promise<void>;
 	private confirmed = false;
 	private fpInstances: FpInstance[] = [];
 
@@ -1620,6 +1668,7 @@ class InsertDateModal extends Modal {
 		defaultEndInput: string,
 		state: WizardState,
 		resolve: (value: InsertDateResult | typeof BACK | typeof CONFIGURE) => void,
+		onSaveFormat?: () => void | Promise<void>,
 	) {
 		super(app);
 		this.rangePresets     = rangePresets;
@@ -1627,6 +1676,7 @@ class InsertDateModal extends Modal {
 		this.defaultEndInput   = defaultEndInput;
 		this.state             = state;
 		this.resolve           = resolve;
+		this.onSaveFormat      = onSaveFormat;
 	}
 
 	onOpen() {
@@ -1853,6 +1903,7 @@ class InsertDateModal extends Modal {
 			const fi = presetBtns.findIndex(b => b === activeDocument.activeElement);
 			resolvePreset(this.rangePresets[fi >= 0 ? fi : 0]!);
 		});
+		addSaveFormatButton(actions, this.onSaveFormat);
 		const configBtn = actions.createEl('button', { cls: 'date-list-configure-btn' });
 		setIcon(configBtn, 'settings');
 		configBtn.createEl('span', { text: 'Configure format…' });
@@ -1908,6 +1959,7 @@ class FilterRangeModal extends Modal {
 	private selectedWeekdays: number[];
 	private state: WizardState;
 	private resolve: (value: FilterRangeResult | typeof BACK | typeof CONFIGURE) => void;
+	private onSaveFormat?: () => void | Promise<void>;
 	private confirmed = false;
 	private fpInstances: FpInstance[] = [];
 
@@ -1921,6 +1973,7 @@ class FilterRangeModal extends Modal {
 		selectedWeekdays: number[],
 		state: WizardState,
 		resolve: (value: FilterRangeResult | typeof BACK | typeof CONFIGURE) => void,
+		onSaveFormat?: () => void | Promise<void>,
 	) {
 		super(app);
 		this.defaultMethod     = defaultMethod;
@@ -1931,6 +1984,7 @@ class FilterRangeModal extends Modal {
 		this.selectedWeekdays  = selectedWeekdays;
 		this.state             = state;
 		this.resolve           = resolve;
+		this.onSaveFormat      = onSaveFormat;
 	}
 
 	onOpen() {
@@ -2145,6 +2199,7 @@ class FilterRangeModal extends Modal {
 
 		const frActions = left.createEl('div', { cls: 'date-list-modal-actions' });
 		frActions.createEl('button', { cls: 'date-list-ok-btn mod-cta', text: 'OK' }).addEventListener('click', submit);
+		addSaveFormatButton(frActions, this.onSaveFormat);
 		const frConfigBtn = frActions.createEl('button', { cls: 'date-list-configure-btn' });
 		setIcon(frConfigBtn, 'settings');
 		frConfigBtn.createEl('span', { text: 'Configure format…' });
