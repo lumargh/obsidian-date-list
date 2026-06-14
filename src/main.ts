@@ -1,6 +1,5 @@
 // todo
 // - new feature: command: insert date using calendar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
-// - improvement: in the configure command, when the user is on the alias format page, if the user has a format specified already, make sure to show `none` as an option. otherwise, if they don't want an alias, they have to go to custom and delete what's there, which is unintuitive.
 // - improvement: add military date format to the configure command preset options (format page)
 // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
 
@@ -414,13 +413,17 @@ async function runFormatWizard(
 				{ label: previewMoment.format('dddd'),           value: 'weekday', fmt: 'dddd' },
 				{ label: previewMoment.format('dddd, MMMM Do'), value: 'daylong', fmt: 'dddd, MMMM Do' },
 			].filter(p => p.fmt !== settings.defaultAlias);
+			// Offer an explicit "None" when the default is a real alias, so the
+			// user can clear it without dropping into Custom… and deleting.
+			const showNone = !!settings.defaultAlias;
 			const aliasR = await suggest<string>(
 				app, 'Alias', 'Add a display alias to each link, e.g. [[2026-01-15|Thu, Jan 15]]. Leave as "None" to skip.',
-				[defaultAliasLabel, ...aliasPresets.map(p => p.label), 'Custom…'],
-				['default', ...aliasPresets.map(p => p.value), 'custom'],
+				[defaultAliasLabel, ...(showNone ? ['None'] : []), ...aliasPresets.map(p => p.label), 'Custom…'],
+				['default', ...(showNone ? ['none'] : []), ...aliasPresets.map(p => p.value), 'custom'],
 				{ ...makeState(), wikiLinks: true },
 				(value, s) => {
 					if (value === 'default') return { ...s, alias: settings.defaultAlias };
+					if (value === 'none') return { ...s, alias: '' };
 					const preset = aliasPresets.find(p => p.value === value);
 					if (preset) return { ...s, alias: preset.fmt };
 					return s;
@@ -428,6 +431,7 @@ async function runFormatWizard(
 			);
 			if (aliasR === BACK) continue;
 			if (aliasR === 'default') { alias = settings.defaultAlias; }
+			else if (aliasR === 'none') { alias = ''; }
 			else if (aliasR !== 'custom') { alias = aliasPresets.find(p => p.value === aliasR)!.fmt; }
 			else {
 				const c = await prompt(app, 'Custom Alias', 'Enter a format string for the alias, e.g. ddd, MMM D', '', { ...makeState(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
@@ -649,22 +653,28 @@ export default class DateListPlugin extends Plugin {
 							{ label: today.format('dddd'),           value: 'weekday', fmt: 'dddd' },
 							{ label: today.format('dddd, MMMM Do'), value: 'daylong', fmt: 'dddd, MMMM Do' },
 						].filter(p => p.fmt !== alias);
+						// Offer an explicit "None" when an alias is already set, so it
+						// can be cleared without dropping into Custom… and deleting.
+						const showNone = !!alias;
 						const aliasR = await suggest<string>(
 							this.app,
 							'Default Alias',
 							'Add a display alias to each link, e.g. [[2026-01-15|Thu, Jan 15]]. Leave as "None" to skip.',
-							[defaultAliasLabel, ...aliasPresets.map(p => p.label), 'Custom…'],
-							['current', ...aliasPresets.map(p => p.value), 'custom'],
+							[defaultAliasLabel, ...(showNone ? ['None'] : []), ...aliasPresets.map(p => p.label), 'Custom…'],
+							['current', ...(showNone ? ['none'] : []), ...aliasPresets.map(p => p.value), 'custom'],
 							{ ...state(), wikiLinks: true },
 							(value, s) => {
 								if (value === 'current') return { ...s, alias };
+								if (value === 'none') return { ...s, alias: '' };
 								const preset = aliasPresets.find(p => p.value === value);
 								if (preset) return { ...s, alias: preset.fmt };
 								return s;
 							},
 						);
 						if (aliasR === BACK) { step--; continue; }
-						if (aliasR !== 'current' && aliasR !== 'custom') {
+						if (aliasR === 'none') {
+							alias = '';
+						} else if (aliasR !== 'current' && aliasR !== 'custom') {
 							alias = aliasPresets.find(p => p.value === aliasR)!.fmt;
 						} else if (aliasR === 'custom') {
 							const c = await prompt(this.app, 'Custom Alias', 'Enter a format string for the alias', alias || 'ddd, MMM D', { ...state(), wikiLinks: true }, (value, s) => ({ ...s, alias: value }));
