@@ -35,6 +35,25 @@ export class DateListSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		const s = this.plugin.settings;
+
+		// Combined output preview — mirrors how buildDates() assembles a line
+		// (prefix + optionally-linked/aliased date + postfix) for three
+		// consecutive days, so the user sees their full format at a glance.
+		let outputPreviewEl: HTMLElement | null = null;
+		const formatLine = (m: ReturnType<typeof moment>): string => {
+			const formatted = m.format(s.defaultFormat || 'YYYY-MM-DD');
+			const linked = s.defaultWikiLinks
+				? (s.defaultAlias ? `[[${formatted}|${m.format(s.defaultAlias)}]]` : `[[${formatted}]]`)
+				: formatted;
+			return s.defaultPrefix + linked + s.defaultPostfix;
+		};
+		const updateOutputPreview = () => {
+			if (!outputPreviewEl) return;
+			outputPreviewEl.setText(
+				Array.from({ length: 3 }, (_, i) => formatLine(moment().add(i, 'days'))).join('\n'),
+			);
+		};
 
 		new Setting(containerEl)
 			.setName('Inline date trigger')
@@ -92,6 +111,7 @@ export class DateListSettingTab extends PluginSettingTab {
 						this.plugin.settings.defaultFormat = value;
 						fmtPreview.toggle(!!value);
 						fmtPreview.setText(value ? moment().format(value) : '');
+						updateOutputPreview();
 						await this.plugin.saveSettings();
 					});
 			});
@@ -104,6 +124,7 @@ export class DateListSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.defaultWikiLinks)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultWikiLinks = value;
+						updateOutputPreview();
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -123,6 +144,7 @@ export class DateListSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.defaultAlias = value;
 						aliasPreview.setText(value ? moment().format(value) : '');
+						updateOutputPreview();
 						await this.plugin.saveSettings();
 					});
 			});
@@ -136,6 +158,7 @@ export class DateListSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.defaultPrefix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPrefix = value;
+						updateOutputPreview();
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -149,9 +172,14 @@ export class DateListSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.defaultPostfix)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultPostfix = value;
+						updateOutputPreview();
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl).setName('Output preview').setHeading();
+		outputPreviewEl = containerEl.createEl('div', { cls: 'date-list-settings-output-preview' });
+		updateOutputPreview();
 
 		new Setting(containerEl).setName('Date guide').setHeading();
 
