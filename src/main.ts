@@ -1,4 +1,6 @@
 // todo
+// - rename commands: quick date & quick list
+// - allow user to write a date and alias in one line using | separator, e.g. tomorrow|D ddd 
 // - new feature: command: insert date using calendar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: add military date format to the configure command preset options (format page)
 // - new feature: add pre-sets in settings. user can define three presets with names. e.g. month list with format: - [ISO|ddd, MMM D]: i'd like to implement a new feature in @date-list/src/settings.ts  that allows the user to save multiple preset formats. presently, the user can specify a format template in the settings. however, the user may need multiple formats for different use cases, e.g. a template for a month list and another template for kanban dates. it would be useful to allow the user to have presetts for multiple use cases. 
@@ -97,35 +99,47 @@ function buildDateTable(dates: string[]): string {
 	return lines.join('\n');
 }
 
+// One day cell: the day number, optionally linked to the date in the user's
+// date format. The alias pipe must be escaped inside a markdown table cell.
+function calendarCell(m: MomentInstance, settings: DateListSettings, wikiLinks: boolean): string {
+	const day = m.format('D');
+	if (!wikiLinks) return day;
+	return `[[${m.format(settings.defaultFormat || 'YYYY-MM-DD')}\\|${day}]]`;
+}
+
+// The weekday header row, starting on the user's configured first day of week.
+function calendarHeader(fdow: number): string[] {
+	return Array.from({ length: 7 }, (_, i) => moment().day((fdow + i) % 7).format('ddd'));
+}
+
+// Wrap header + day cells (7 per week) into a markdown table.
+function calendarTable(header: string[], cells: string[]): string {
+	const rows = [`| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`];
+	for (let i = 0; i < cells.length; i += 7) rows.push(`| ${cells.slice(i, i + 7).join(' | ')} |`);
+	return rows.join('\n');
+}
+
 // Build a markdown calendar table for the month containing `monthStart`.
-// Header starts on the user's configured first day of week; day cells show the day
-// number, optionally linked to the date in the user's date format when wikilinks are on.
+// Day cells show the day number, optionally linked when wikilinks are on.
 function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings, wikiLinks: boolean): string {
 	const fdow = settings.firstDayOfWeek;
-	const header = Array.from({ length: 7 }, (_, i) => moment().day((fdow + i) % 7).format('ddd'));
-
-	const cell = (m: MomentInstance): string => {
-		const day = m.format('D');
-		if (!wikiLinks) return day;
-		// The alias pipe must be escaped inside a markdown table cell.
-		return `[[${m.format(settings.defaultFormat || 'YYYY-MM-DD')}\\|${day}]]`;
-	};
-
 	const first = monthStart.clone().startOf('month');
 	const daysInMonth = first.daysInMonth();
 	const lead = (first.day() - fdow + 7) % 7; // blank cells before day 1
 
 	const cells: string[] = Array.from({ length: lead }, () => '');
-	for (let d = 0; d < daysInMonth; d++) cells.push(cell(first.clone().add(d, 'days')));
+	for (let d = 0; d < daysInMonth; d++) cells.push(calendarCell(first.clone().add(d, 'days'), settings, wikiLinks));
 	while (cells.length % 7 !== 0) cells.push(''); // pad the final row
+	return calendarTable(calendarHeader(fdow), cells);
+}
 
-	const rows: string[] = [];
-	rows.push(`| ${header.join(' | ')} |`);
-	rows.push(`| ${header.map(() => '---').join(' | ')} |`);
-	for (let i = 0; i < cells.length; i += 7) {
-		rows.push(`| ${cells.slice(i, i + 7).join(' | ')} |`);
-	}
-	return rows.join('\n');
+// Build a markdown calendar table for `numWeeks` consecutive weeks starting at
+// `weekStart` (which must already be the user's first day of week) — one row per week.
+function buildWeekCalendarTable(weekStart: MomentInstance, numWeeks: number, settings: DateListSettings, wikiLinks: boolean): string {
+	const fdow = settings.firstDayOfWeek;
+	const cells: string[] = [];
+	for (let d = 0; d < numWeeks * 7; d++) cells.push(calendarCell(weekStart.clone().add(d, 'days'), settings, wikiLinks));
+	return calendarTable(calendarHeader(fdow), cells);
 }
 
 function renderPreview(el: HTMLElement, state: WizardState): void {
@@ -913,9 +927,11 @@ export default class DateListPlugin extends Plugin {
 			id: 'insert-calendar',
 			name: 'Insert calendar',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
-				const choice = await promptMonth(this.app, this.settings.defaultWikiLinks);
+				const choice = await promptCalendar(this.app, this.settings.firstDayOfWeek, this.settings.defaultWikiLinks);
 				if (choice === BACK) return;
-				const table = buildCalendarTable(choice.m, this.settings, choice.link);
+				const table = choice.s.kind === 'week'
+					? buildWeekCalendarTable(choice.s.m, choice.s.weeks!, this.settings, choice.link)
+					: buildCalendarTable(choice.s.m, this.settings, choice.link);
 				// Markdown tables must start on their own line to render.
 				const prefix = editor.getCursor().ch > 0 ? '\n' : '';
 				editor.replaceSelection(`${prefix}${table}`);
@@ -1224,64 +1240,91 @@ class PromptModal extends Modal {
 // -------------------------------------------------------------------
 const MONTH_PARSE_FORMATS = ['MMMM YYYY', 'MMM YYYY', 'YYYY-MM', 'MMMM', 'MMM', 'M'];
 
-interface MonthSuggestion { m: MomentInstance; label: string; }
+// A month calendar, or a range of `weeks` consecutive weeks starting at `m`.
+interface CalendarSuggestion { m: MomentInstance; label: string; kind: 'month' | 'week'; weeks?: number; }
 
-// Mirrors the inline suggester: a rolling 12-month default list, "+N [m|y]"
-// relative offsets, and free month/year parsing — all live-filtered by the query.
-function computeMonthSuggestions(query: string): MonthSuggestion[] {
-	const now = moment().startOf('month');
-	const base: MonthSuggestion[] = [];
+// The main text shown for a suggestion: the month name, or the week's date range.
+function calendarSuggestionText(s: CalendarSuggestion): string {
+	if (s.kind === 'month') return s.m.format('MMMM YYYY');
+	const end = s.m.clone().add(s.weeks! * 7 - 1, 'days');
+	return `${s.m.format('MMM D')} – ${end.format('MMM D')}`;
+}
+
+// Week ranges (single weeks and multi-week spans) followed by a rolling 12-month
+// list. Supports "next N weeks", "+N [w|m|y]" offsets, and free month/year parsing.
+function computeCalendarSuggestions(query: string, fdow: number): CalendarSuggestion[] {
+	const nowMonth = moment().startOf('month');
+	const thisWeek = startOfWeek(moment(), fdow);
+
+	const weekBase: CalendarSuggestion[] = [
+		{ m: thisWeek.clone(),                kind: 'week', weeks: 1, label: 'this week' },
+		{ m: thisWeek.clone().add(1, 'weeks'), kind: 'week', weeks: 1, label: 'next week' },
+		{ m: thisWeek.clone(),                kind: 'week', weeks: 2, label: 'next 2 weeks' },
+		{ m: thisWeek.clone(),                kind: 'week', weeks: 4, label: 'next 4 weeks' },
+	];
+	const monthBase: CalendarSuggestion[] = [];
 	for (let i = 0; i < 12; i++) {
-		const m = now.clone().add(i, 'months');
-		base.push({ m, label: i === 0 ? 'this month' : i === 1 ? 'next month' : '' });
+		const m = nowMonth.clone().add(i, 'months');
+		monthBase.push({ m, kind: 'month', label: i === 0 ? 'this month' : i === 1 ? 'next month' : '' });
 	}
 
 	const q = query.trim().toLowerCase();
-	if (!q) return base;
+	if (!q) return [...weekBase, ...monthBase];
 
-	const out: MonthSuggestion[] = [];
+	const out: CalendarSuggestion[] = [];
 	const seen = new Set<string>();
-	const push = (m: MomentInstance, label: string) => {
-		const k = m.format('YYYY-MM');
+	const push = (s: CalendarSuggestion) => {
+		const k = `${s.kind}:${s.m.format('YYYY-MM-DD')}:${s.weeks ?? ''}`;
 		if (seen.has(k)) return;
 		seen.add(k);
-		out.push({ m, label });
+		out.push(s);
 	};
 
-	// "+N [m|y]" → +N months and/or +N years from the current month; unit hint filters.
+	// "+N [w|m|y]" → +N weeks (single week), months, and/or years; unit hint filters.
 	const rel = q.match(/^\+(\d+)\s*([a-z]*)$/);
 	if (rel) {
 		const n = parseInt(rel[1]!);
 		const hint = rel[2]!;
-		const units = ([
-			{ key: 'months', word: 'month' },
-			{ key: 'years',  word: 'year' },
-		] as const).filter(u => !hint || u.key.startsWith(hint) || u.word.startsWith(hint));
-		for (const u of units) push(now.clone().add(n, u.key), `+${n} ${u.word}${n === 1 ? '' : 's'}`);
+		if (!hint || 'week'.startsWith(hint) || 'weeks'.startsWith(hint))
+			push({ m: thisWeek.clone().add(n, 'weeks'), kind: 'week', weeks: 1, label: `+${n} week${n === 1 ? '' : 's'}` });
+		if (!hint || 'month'.startsWith(hint) || 'months'.startsWith(hint))
+			push({ m: nowMonth.clone().add(n, 'months'), kind: 'month', label: `+${n} month${n === 1 ? '' : 's'}` });
+		if (!hint || 'year'.startsWith(hint) || 'years'.startsWith(hint))
+			push({ m: nowMonth.clone().add(n, 'years'), kind: 'month', label: `+${n} year${n === 1 ? '' : 's'}` });
 		return out;
+	}
+
+	// "next N weeks" / "N weeks" → an N-week range starting from this week.
+	const rangeWk = q.match(/^(?:next\s+)?(\d+)\s*weeks?$/);
+	if (rangeWk) {
+		const n = Math.max(1, parseInt(rangeWk[1]!));
+		push({ m: thisWeek.clone(), kind: 'week', weeks: n, label: `next ${n} week${n === 1 ? '' : 's'}` });
 	}
 
 	// Explicit month / year (e.g. dec, jan 2027, 2026-12).
 	const parsed = moment(q, MONTH_PARSE_FORMATS, true);
-	if (parsed.isValid()) push(parsed.startOf('month'), '');
+	if (parsed.isValid()) push({ m: parsed.startOf('month'), kind: 'month', label: '' });
 
-	// Text-filter the rolling 12-month list.
-	for (const s of base) {
-		const hay = `${s.m.format('MMMM YYYY')} ${s.m.format('MMM YYYY')} ${s.m.format('YYYY-MM')} ${s.label}`.toLowerCase();
-		if (hay.includes(q)) push(s.m, s.label);
+	// Text-filter the week ranges and the rolling 12-month list.
+	for (const s of [...weekBase, ...monthBase]) {
+		const hay = s.kind === 'month'
+			? `${s.m.format('MMMM YYYY')} ${s.m.format('MMM YYYY')} ${s.m.format('YYYY-MM')} ${s.label}`.toLowerCase()
+			: `${s.label} ${calendarSuggestionText(s)}`.toLowerCase();
+		if (hay.includes(q)) push(s);
 	}
 
 	return out;
 }
 
-interface MonthChoice { m: MomentInstance; link: boolean; }
+interface CalendarChoice { s: CalendarSuggestion; link: boolean; }
 
-class MonthPickerModal extends Modal {
+class CalendarPickerModal extends Modal {
 	private resolved = false;
 	constructor(
 		app: App,
+		private fdow: number,
 		private defaultLink: boolean,
-		private resolve: (value: MonthChoice | typeof BACK) => void,
+		private resolve: (value: CalendarChoice | typeof BACK) => void,
 	) {
 		super(app);
 	}
@@ -1301,28 +1344,28 @@ class MonthPickerModal extends Modal {
 		const searchInput = left.createEl('input', {
 			type: 'text',
 			cls: 'date-list-quick-search',
-			placeholder: 'this month, +1 month, dec, jan 2027…',
+			placeholder: 'this week, next 2 weeks, next month, dec…',
 		});
 
 		const listEl = left.createEl('div');
-		let current: MonthSuggestion[] = [];
+		let current: CalendarSuggestion[] = [];
 		let btns: HTMLButtonElement[] = [];
 		let linkCheckbox: HTMLInputElement;
 
-		const select = (s: MonthSuggestion) => {
+		const select = (s: CalendarSuggestion) => {
 			this.resolved = true;
-			this.resolve({ m: s.m, link: linkCheckbox.checked });
+			this.resolve({ s, link: linkCheckbox.checked });
 			this.close();
 		};
 
 		const renderList = (query: string) => {
 			listEl.empty();
-			current = computeMonthSuggestions(query);
+			current = computeCalendarSuggestions(query, this.fdow);
 			btns = current.map((s, i) => {
 				const btn = listEl.createEl('button', { cls: 'date-list-option-btn has-subtext' });
 				btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
 				if (s.label) btn.createEl('span', { text: s.label, cls: 'date-list-option-subtext' });
-				btn.createEl('span', { text: s.m.format('MMMM YYYY'), cls: 'date-list-option-text' });
+				btn.createEl('span', { text: calendarSuggestionText(s), cls: 'date-list-option-text' });
 				btn.addEventListener('click', () => select(s));
 				return btn;
 			});
@@ -1387,8 +1430,8 @@ class MonthPickerModal extends Modal {
 	}
 }
 
-function promptMonth(app: App, defaultLink: boolean): Promise<MonthChoice | typeof BACK> {
-	return new Promise((resolve) => new MonthPickerModal(app, defaultLink, resolve).open());
+function promptCalendar(app: App, fdow: number, defaultLink: boolean): Promise<CalendarChoice | typeof BACK> {
+	return new Promise((resolve) => new CalendarPickerModal(app, fdow, defaultLink, resolve).open());
 }
 
 // -------------------------------------------------------------------
