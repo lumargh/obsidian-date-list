@@ -31,6 +31,8 @@ type MomentFactory = { (): MomentInstance; (inp: string, fmt?: string | string[]
 const moment = _m as unknown as MomentFactory;
 type DurationUnit = 'days' | 'weeks' | 'months' | 'years';
 
+interface DateRange { start: MomentInstance; end: MomentInstance }
+
 // Week boundaries computed manually (rather than moment's locale-dependent isoWeek)
 // so they honor the user's configured first day of week without mutating global locale.
 function startOfWeek(m: MomentInstance, firstDayOfWeek: number): MomentInstance {
@@ -121,16 +123,36 @@ function calendarTable(header: string[], cells: string[]): string {
 
 // Build a markdown calendar table for the month containing `monthStart`.
 // Day cells show the day number, optionally linked when wikilinks are on.
-function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings, wikiLinks: boolean): string {
+// With `range`, days outside it are left blank.
+function buildCalendarTable(monthStart: MomentInstance, settings: DateListSettings, wikiLinks: boolean, range?: DateRange): string {
 	const fdow = settings.firstDayOfWeek;
 	const first = monthStart.clone().startOf('month');
 	const daysInMonth = first.daysInMonth();
 	const lead = (first.day() - fdow + 7) % 7; // blank cells before day 1
 
 	const cells: string[] = Array.from({ length: lead }, () => '');
-	for (let d = 0; d < daysInMonth; d++) cells.push(calendarCell(first.clone().add(d, 'days'), settings, wikiLinks));
+	for (let d = 0; d < daysInMonth; d++) {
+		const day = first.clone().add(d, 'days');
+		const outside = range && !day.isBetween(range.start, range.end, 'day', '[]');
+		cells.push(outside ? '' : calendarCell(day, settings, wikiLinks));
+	}
 	while (cells.length % 7 !== 0) cells.push(''); // pad the final row
 	return calendarTable(calendarHeader(fdow), cells);
+}
+
+// `count` consecutive month tables starting at `monthStart`, each headed by its
+// month name when there is more than one to tell apart.
+function buildMonthTables(monthStart: MomentInstance, count: number, settings: DateListSettings, wikiLinks: boolean, range?: DateRange): string {
+	return Array.from({ length: count }, (_, i) => {
+		const m = monthStart.clone().add(i, 'months');
+		const table = buildCalendarTable(m, settings, wikiLinks, range);
+		return count > 1 ? `**${m.format('MMMM YYYY')}**\n\n${table}` : table;
+	}).join('\n\n');
+}
+
+// Number of calendar months a range touches.
+function monthSpan(range: DateRange): number {
+	return range.end.clone().startOf('month').diff(range.start.clone().startOf('month'), 'months') + 1;
 }
 
 // Build a markdown calendar table for `numWeeks` consecutive weeks starting at
@@ -929,9 +951,12 @@ export default class DateListPlugin extends Plugin {
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				const choice = await promptCalendar(this.app, this.settings.firstDayOfWeek, this.settings.defaultWikiLinks);
 				if (choice === BACK) return;
-				const table = choice.s.kind === 'week'
-					? buildWeekCalendarTable(choice.s.m, choice.s.weeks!, this.settings, choice.link)
-					: buildCalendarTable(choice.s.m, this.settings, choice.link);
+				const s = choice.s;
+				const table = s.kind === 'week'
+					? buildWeekCalendarTable(s.m, s.weeks!, this.settings, choice.link)
+					: s.kind === 'range'
+						? buildMonthTables(s.range!.start.clone().startOf('month'), monthSpan(s.range!), this.settings, choice.link, s.range)
+						: buildMonthTables(s.m, s.months ?? 1, this.settings, choice.link);
 				// Markdown tables must start on their own line to render.
 				const prefix = editor.getCursor().ch > 0 ? '\n' : '';
 				editor.replaceSelection(`${prefix}${table}`);
@@ -1240,14 +1265,33 @@ class PromptModal extends Modal {
 // -------------------------------------------------------------------
 const MONTH_PARSE_FORMATS = ['MMMM YYYY', 'MMM YYYY', 'YYYY-MM', 'MMMM', 'MMM', 'M'];
 
-// A month calendar, or a range of `weeks` consecutive weeks starting at `m`.
-interface CalendarSuggestion { m: MomentInstance; label: string; kind: 'month' | 'week'; weeks?: number; }
+// `months` consecutive month calendars from `m`, a range of `weeks` consecutive
+// weeks starting at `m`, or a `range` shown as month calendars with the days
+// outside it blanked out.
+interface CalendarSuggestion { m: MomentInstance; label: string; kind: 'month' | 'week' | 'range'; weeks?: number; months?: number; range?: DateRange; }
 
-// The main text shown for a suggestion: the month name, or the week's date range.
+// The main text shown for a suggestion: the month name(s), or the date range.
 function calendarSuggestionText(s: CalendarSuggestion): string {
-	if (s.kind === 'month') return s.m.format('MMMM YYYY');
+	if (s.kind === 'range') return `${s.range!.start.format('MMM D')} – ${s.range!.end.format('MMM D')}`;
+	if (s.kind === 'month') {
+		const last = s.m.clone().add((s.months ?? 1) - 1, 'months');
+		return last.isSame(s.m, 'month') ? s.m.format('MMMM YYYY') : `${s.m.format('MMMM')} – ${last.format('MMMM YYYY')}`;
+	}
 	const end = s.m.clone().add(s.weeks! * 7 - 1, 'days');
 	return `${s.m.format('MMM D')} – ${end.format('MMM D')}`;
+}
+
+// A range query like "aug 15-18", "aug 30 - sep 2" or "aug 15 to 18". A bare
+// number on the right-hand side is read as a day in the left-hand month.
+function parseCalendarRange(q: string, fdow: number): DateRange | null {
+	const m = q.match(/^(.+?)\s*(?:-|–|to)\s*(.+)$/);
+	if (!m) return null;
+	const start = parseDate(m[1]!, fdow);
+	if (!start.isValid()) return null;
+	const rhs = m[2]!.trim();
+	const end = /^\d{1,2}$/.test(rhs) ? start.clone().date(parseInt(rhs)) : parseDate(rhs, fdow);
+	if (!end.isValid() || end.isBefore(start, 'day')) return null;
+	return { start: start.startOf('day'), end: end.startOf('day') };
 }
 
 // Week ranges (single weeks and multi-week spans) followed by a rolling 12-month
@@ -1312,6 +1356,23 @@ function computeCalendarSuggestions(query: string, fdow: number): CalendarSugges
 			: `${s.label} ${calendarSuggestionText(s)}`.toLowerCase();
 		if (hay.includes(q)) push(s);
 	}
+	if (out.length > 0) return out;
+
+	// Nothing matched by name: read the query as a date range (aug 15-18), which
+	// offers the range itself or the whole month(s), or as a single date (aug 15),
+	// which offers its week or its month.
+	const range = parseCalendarRange(q, fdow);
+	if (range) {
+		const months = monthSpan(range);
+		push({ m: range.start.clone(), kind: 'range', range, label: 'range' });
+		push({ m: range.start.clone().startOf('month'), kind: 'month', months, label: months === 1 ? 'month' : 'months' });
+		return out;
+	}
+	const day = parseDate(q, fdow);
+	if (day.isValid()) {
+		push({ m: startOfWeek(day.clone(), fdow), kind: 'week', weeks: 1, label: 'week' });
+		push({ m: day.clone().startOf('month'), kind: 'month', label: 'month' });
+	}
 
 	return out;
 }
@@ -1344,7 +1405,7 @@ class CalendarPickerModal extends Modal {
 		const searchInput = left.createEl('input', {
 			type: 'text',
 			cls: 'date-list-quick-search',
-			placeholder: 'this week, next 2 weeks, next month, dec…',
+			placeholder: 'this week, next month, dec, aug 15, aug 15-18…',
 		});
 
 		const listEl = left.createEl('div');
