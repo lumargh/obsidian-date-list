@@ -1,5 +1,4 @@
 // todo
-// - rename commands: quick date & quick list
 // - allow user to write a date and alias in one line using | separator, e.g. tomorrow|D ddd 
 // - new feature: command: insert date using calendar popup. Use the popup that the Kanban plugin uses. https://github.com/obsidian-community/obsidian-kanban
 // - improvement: add military date format to the configure command preset options (format page)
@@ -833,7 +832,7 @@ export default class DateListPlugin extends Plugin {
 		// ---------------------------------------------------------------
 		this.addCommand({
 			id: 'insert',
-			name: 'Insert list',
+			name: 'Quick list',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				let startInput = moment().format('YYYY-MM-DD');
 				let endInput   = '';
@@ -1104,7 +1103,7 @@ export default class DateListPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'quick-insert',
-			name: 'Quick insert',
+			name: 'Quick date',
 			editorCallback: async (editor: Editor, _ctx: MarkdownView | MarkdownFileInfo) => {
 				// Ad-hoc format lives in locals; "Configure format…" only changes it
 				// for this insertion, and "Save format" persists it to the defaults.
@@ -1663,7 +1662,7 @@ class QuickInsertModal extends Modal {
 		this.titleEl.empty();
 		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
 		backBtn.addEventListener('click', () => this.close());
-		this.titleEl.createSpan({ text: 'Quick insert' });
+		this.titleEl.createSpan({ text: 'Quick date' });
 
 		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
 		const left = body.createEl('div', { cls: 'date-list-modal-left' });

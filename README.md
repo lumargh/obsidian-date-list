@@ -56,11 +56,11 @@ Each row shows the label, the date range, and the number of dates. The inserted 
 
 ---
 
-### Quick Insert
+### Quick date
 
-**Date List: Quick insert** drops a single formatted date at the cursor. Pick from common presets or type any custom date expression.
+**Date List: Quick date** drops a single formatted date at the cursor. Pick from common presets or type any custom date expression.
 
-![Quick insert](https://github.com/lumargh/obsidian-date-list/blob/master/assets/quick-insert.png)
+![Quick date](https://github.com/lumargh/obsidian-date-list/blob/master/assets/quick-insert.png)
 
 You can also use a calendar popup:
 
@@ -70,7 +70,7 @@ The inserted date uses your configured default format, wiki links, and alias set
 
 ---
 
-### Insert Date List
+### Quick list
 
 Quickly add a list of dates according to your search criteria. The most common options are provided first: this week, next week, this month, etc.
 
@@ -80,7 +80,7 @@ Alternately, you can just return the next *n* number of days, say for example if
 
 ![Range duration](https://github.com/lumargh/obsidian-date-list/blob/master/assets/range-duration.png)
 
-Open the command palette and run **Date List: Insert date list**. The first screen shows six common range presets (this week, next week, this month, etc.) — click or press the matching number to insert immediately.
+Open the command palette and run **Date List: Quick list**. The first screen shows six common range presets (this week, next week, this month, etc.) — click or press the matching number to insert immediately.
 
 For a custom range, choose **Custom…** (option 7) to expand an inline date picker with four methods:
 
