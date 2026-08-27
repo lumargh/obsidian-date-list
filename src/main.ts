@@ -1815,7 +1815,7 @@ class InsertDateModal extends Modal {
 		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
 		const right = body.createEl('div', { cls: 'date-list-modal-right' });
 
-		left.createEl('p', { text: 'Pick a common range, or choose "custom" to set your own dates.', cls: 'date-list-instructions' });
+		const instructionsEl = left.createEl('p', { text: 'Set your own dates, or pick a common range.', cls: 'date-list-instructions' });
 
 		right.createEl('div', { text: 'Preview', cls: 'date-list-preview-label' });
 		const previewEl = right.createEl('div', { cls: 'date-list-preview-sidebar' });
@@ -1843,7 +1843,7 @@ class InsertDateModal extends Modal {
 				stepUnit: 'days',
 			};
 			const btn = left.createEl('button', { cls: 'date-list-option-btn has-subtext' });
-			btn.createEl('span', { text: String(i + 1), cls: 'date-list-option-num' });
+			btn.createEl('span', { text: String(i + 2), cls: 'date-list-option-num' });
 			btn.createEl('span', { text: p.name,        cls: 'date-list-option-subtext' });
 			btn.createEl('span', { text: p.label,       cls: 'date-list-option-text' });
 			btn.addEventListener('click', () => resolvePreset(p));
@@ -1858,13 +1858,15 @@ class InsertDateModal extends Modal {
 			return btn;
 		});
 
-		// — Custom button (option N+1) —
+		// — Custom button (option 1) —
 		const customBtn = left.createEl('button', { cls: 'date-list-option-btn' });
-		customBtn.createEl('span', { text: String(this.rangePresets.length + 1), cls: 'date-list-option-num' });
+		customBtn.createEl('span', { text: '1', cls: 'date-list-option-num' });
 		customBtn.createEl('span', { text: 'Custom…', cls: 'date-list-option-text' });
 
 		// — Custom section (hidden until activated) —
 		const customSection = left.createEl('div', { cls: 'date-list-custom-section date-list-hidden' });
+		// Custom is option 1, so move it above the presets it was created after.
+		instructionsEl.after(customBtn, customSection);
 
 		type CustomMethod = 'between' | 'in-the-next' | 'in-the-past' | 'duration';
 		let customMethod: CustomMethod = 'between';
@@ -2033,7 +2035,7 @@ class InsertDateModal extends Modal {
 		configBtn.addEventListener('click', () => { this.confirmed = true; this.resolve(CONFIGURE); this.close(); });
 
 		// — Keyboard navigation —
-		const allBtns = [...presetBtns, customBtn];
+		const allBtns = [customBtn, ...presetBtns];
 		const customInputs = [startInputEl, endInputEl, durStartEl, nInput];
 		this.containerEl.addEventListener('keydown', (e: KeyboardEvent) => {
 			const active = activeDocument.activeElement;
@@ -2041,26 +2043,26 @@ class InsertDateModal extends Modal {
 			const fi = allBtns.findIndex(b => b === active);
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				if (fi === allBtns.length - 1) {
-					showCustom();
-					(customMethod === 'between' ? startInputEl : customMethod === 'duration' ? durStartEl : nInput).focus();
-				} else allBtns[(fi + 1) % allBtns.length]?.focus();
+				allBtns[(fi + 1) % allBtns.length]?.focus();
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
 				allBtns[(fi - 1 + allBtns.length) % allBtns.length]?.focus();
-			} else if (e.key === 'Enter' && fi >= 0 && fi < presetBtns.length) {
+			} else if (e.key === 'Enter' && fi === 0) {
 				e.preventDefault();
-				resolvePreset(this.rangePresets[fi]!);
+				submitCustom();
+			} else if (e.key === 'Enter' && fi > 0) {
+				e.preventDefault();
+				resolvePreset(this.rangePresets[fi - 1]!);
 			} else {
 				const idx = parseInt(e.key) - 1;
 				if (isNaN(idx)) return;
 				e.preventDefault();
-				if (idx >= 0 && idx < presetBtns.length) resolvePreset(this.rangePresets[idx]!);
-				else if (idx === presetBtns.length) { showCustom(); startInputEl.focus(); }
+				if (idx === 0) { showCustom(); startInputEl.focus(); }
+				else if (idx >= 1 && idx <= presetBtns.length) resolvePreset(this.rangePresets[idx - 1]!);
 			}
 		});
 
-		window.setTimeout(() => presetBtns[0]?.focus(), 50);
+		window.setTimeout(() => { showCustom(); startInputEl.focus(); }, 50);
 	}
 
 	onClose() {
