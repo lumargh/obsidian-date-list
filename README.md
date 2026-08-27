@@ -80,9 +80,9 @@ Alternately, you can just return the next *n* number of days, say for example if
 
 ![Range duration](https://github.com/lumargh/obsidian-date-list/blob/master/assets/range-duration.png)
 
-Open the command palette and run **Date List: Quick list**. The first screen shows six common range presets (this week, next week, this month, etc.) — click or press the matching number to insert immediately.
+Open the command palette and run **Date List: Quick list**. It opens on **Custom…** (option 1) with the start date field focused, so you can type a range straight away. Options 2–7 are common range presets (this week, next week, this month, etc.) — click or press the matching number to insert immediately.
 
-For a custom range, choose **Custom…** (option 7) to expand an inline date picker with four methods:
+The custom section offers four methods:
 
 | Method | What it generates |
 |--------|------------------|
