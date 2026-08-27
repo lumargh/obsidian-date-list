@@ -97,7 +97,20 @@ A **⚙ Configure format…** button is available on every screen to set the dat
 
 ---
 
-### Filter Dates
+### Insert table
+
+The **Date List: Insert table** command builds the same date range as Quick list, but renders it as a two-column markdown table with a blank **Notes** column for each date — handy for itineraries, habit logs, or meeting notes.
+
+| Date | Notes |
+| --- | --- |
+| 2026-06-01 |  |
+| 2026-06-02 |  |
+
+It uses the same range picker as Quick list (custom range first, then the six presets). Your default prefix and postfix are dropped, since list bullets don't belong in a table cell — the **⚙ Configure format…** button can add them back if you want them.
+
+---
+
+### Filter dates
 
 The **Date List: Filter dates** command allows you to find all instances of a specific day given the search parameters. For example, you can easily find the weekends for the next three months, or the dates of a recurring meeting you have.
 
@@ -106,7 +119,7 @@ The **Date List: Filter dates** command allows you to find all instances of a sp
 
 ---
 
-### Insert Calendar
+### Insert calendar
 
 The **Date List: Insert calendar** command inserts a markdown table for a whole month. The header row follows your configured first day of week, and each day cell uses your date format and wiki link preference.
 
@@ -125,7 +138,7 @@ With wiki links enabled, each cell links to that day's note (e.g. `[[2026-06-07\
 
 ---
 
-### Configure Date List
+### Configure
 
 Every time you enter a date, you can choose from a default format or customize it on the fly. The plugin supports wiki links, aliases, and any date format you can think of.
 

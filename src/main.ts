@@ -562,6 +562,7 @@ interface InsertDateResult {
 
 function promptInsertDate(
 	app: App,
+	title: string,
 	rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[],
 	defaultStartInput: string,
 	defaultEndInput: string,
@@ -569,7 +570,7 @@ function promptInsertDate(
 	onSaveFormat?: () => void | Promise<void>,
 ): Promise<InsertDateResult | typeof BACK | typeof CONFIGURE> {
 	return new Promise((resolve) =>
-		new InsertDateModal(app, rangePresets, defaultStartInput, defaultEndInput, state, resolve, onSaveFormat).open(),
+		new InsertDateModal(app, title, rangePresets, defaultStartInput, defaultEndInput, state, resolve, onSaveFormat).open(),
 	);
 }
 
@@ -863,7 +864,7 @@ export default class DateListPlugin extends Plugin {
 				});
 
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
+					const r = await promptInsertDate(this.app, 'Quick list', rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -920,7 +921,7 @@ export default class DateListPlugin extends Plugin {
 				});
 
 				while (true) {
-					const r = await promptInsertDate(this.app, rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
+					const r = await promptInsertDate(this.app, 'Insert table', rangePresets, startInput, endInput, state(), this.maybeSaveFormat({ fmt, wikiLinks, alias, prefix, postfix }));
 					if (r === BACK) return;
 					if (r === CONFIGURE) {
 						const res = await runFormatWizard(this.app, startMoment, { fmt, wikiLinks, alias, prefix, postfix }, this.settings);
@@ -1775,6 +1776,7 @@ class QuickInsertModal extends Modal {
 // InsertDateModal — presets + inline custom date inputs
 // -------------------------------------------------------------------
 class InsertDateModal extends Modal {
+	private title: string;
 	private rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[];
 	private defaultStartInput: string;
 	private defaultEndInput: string;
@@ -1786,6 +1788,7 @@ class InsertDateModal extends Modal {
 
 	constructor(
 		app: App,
+		title: string,
 		rangePresets: { name: string; label: string; start: MomentInstance; end: MomentInstance }[],
 		defaultStartInput: string,
 		defaultEndInput: string,
@@ -1794,6 +1797,7 @@ class InsertDateModal extends Modal {
 		onSaveFormat?: () => void | Promise<void>,
 	) {
 		super(app);
+		this.title            = title;
 		this.rangePresets     = rangePresets;
 		this.defaultStartInput = defaultStartInput;
 		this.defaultEndInput   = defaultEndInput;
@@ -1809,7 +1813,7 @@ class InsertDateModal extends Modal {
 		this.titleEl.empty();
 		const backBtn = this.titleEl.createEl('button', { text: '←', cls: 'date-list-back-btn' });
 		backBtn.addEventListener('click', () => this.close());
-		this.titleEl.createSpan({ text: 'Date Range' });
+		this.titleEl.createSpan({ text: this.title });
 
 		const body = contentEl.createEl('div', { cls: 'date-list-modal-body' });
 		const left  = body.createEl('div', { cls: 'date-list-modal-left' });
