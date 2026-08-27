@@ -2452,21 +2452,30 @@ function computeDateSuggestions(query: string, settings: DateListSettings): Date
 					return { idx, start };
 				});
 				upcoming.sort((a, b) => a.start.valueOf() - b.start.valueOf());
-				const { idx: chosenIdx, start } = upcoming[0]!;
-
-				let windowStart = start.clone();
-				if (dayStr) {
-					const dayNum = parseInt(dayStr);
-					const shifted = today.clone().month(chosenIdx).date(dayNum).startOf('day');
-					if (shifted.isValid() && shifted.month() === chosenIdx) windowStart = shifted;
-				}
+				const { start } = upcoming[0]!;
 
 				const results: DateSuggestion[] = [];
-				const cursor = windowStart.clone();
-				while (results.length < 7) {
-					const k = cursor.format('YYYY-MM-DD');
-					if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
-					cursor.add(1, 'days');
+
+				// A typed day is a prefix, not an exact date: "aug 3" still has 30 and
+				// 31 ahead of it, so offer every day number starting with what's typed.
+				if (dayStr) {
+					const lastDay = start.clone().endOf('month').date();
+					for (let d = 1; d <= lastDay && results.length < 7; d++) {
+						if (!String(d).startsWith(dayStr)) continue;
+						const m = start.clone().date(d);
+						const k = m.format('YYYY-MM-DD');
+						if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(m)); }
+					}
+				}
+
+				// No day typed, or nothing matched it: a window from the month start.
+				if (results.length === 0) {
+					const cursor = start.clone();
+					while (results.length < 7) {
+						const k = cursor.format('YYYY-MM-DD');
+						if (!seen.has(k)) { seen.add(k); results.push(toSuggestion(cursor.clone())); }
+						cursor.add(1, 'days');
+					}
 				}
 				if (results.length > 0) return results;
 			}
